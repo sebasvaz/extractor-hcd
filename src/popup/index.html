@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Extractor de HCD</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Extractor de HCD</h1>
+      <p class="subtitle">
+        Descargá tu historia clínica digital — Mi HCD
+      </p>
+    </header>
+
+    <main>
+      <!-- Estado: no estamos en Mi HCD -->
+      <section id="not-on-mihcd" hidden>
+        <p>
+          Esta extensión solo opera dentro de
+          <code>historiaclinicadigital.gub.uy</code>. Abra Mi HCD, inicie
+          sesión y reabra este popup.
+        </p>
+      </section>
+
+      <!-- Estado: listos para correr / corriendo / terminado -->
+      <section id="main-section" hidden>
+        <div class="session-row">
+          <span id="session-dot" class="dot dot-unknown" aria-hidden="true"></span>
+          <span id="session-status" class="value">Verificando sesión…</span>
+        </div>
+
+        <div class="status-row">
+          <span class="label">Estado:</span>
+          <span id="run-status" class="value">En espera</span>
+        </div>
+        <div class="status-row">
+          <span class="label">Avance:</span>
+          <span id="run-counts" class="value">0 / 0</span>
+        </div>
+        <div class="status-row">
+          <span class="label">Página:</span>
+          <span id="run-page" class="value">0 / 0</span>
+        </div>
+
+        <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+
+        <div class="options">
+          <label class="toggle" title="Sustituye nombre del paciente, cédula, teléfonos y emails del HTML por tokens. Preserva contenido clínico, fechas y profesionales.">
+            <input id="anon-toggle" type="checkbox" />
+            <span>Anonimizar datos personales <em>(básico)</em></span>
+          </label>
+        </div>
+
+        <!-- Panel persistente de corrida completada -->
+        <div id="done-panel" class="done-panel" hidden>
+          <div class="done-head">
+            <span class="done-mark">✔</span>
+            <span id="done-title">Corrida completada</span>
+          </div>
+          <div class="done-meta">
+            <div><span class="label">Archivo:</span> <span id="done-filename" class="value mono"></span></div>
+            <div><span class="label">Tamaño:</span> <span id="done-size" class="value"></span></div>
+            <div><span class="label">Terminó:</span> <span id="done-when" class="value"></span></div>
+            <div id="done-anon-row" hidden><span class="label">Anonimizado:</span> <span class="value">sí (básico)</span></div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="start-button" class="primary" type="button">Iniciar extracción</button>
+          <button id="cancel-button" class="secondary" type="button" disabled>Cancelar</button>
+          <button id="download-button" class="primary" type="button" disabled>Descargar ZIP</button>
+          <button id="log-button" class="secondary" type="button">Ver log</button>
+        </div>
+
+        <div id="events-container">
+          <h3>Últimos eventos capturados</h3>
+          <ul id="events-list" class="events-list">
+            <li class="empty">Sin capturas todavía.</li>
+          </ul>
+        </div>
+
+        <div id="errors-container" hidden>
+          <h3>Errores</h3>
+          <ul id="errors-list" class="errors-list"></ul>
+        </div>
+      </section>
+
+      <!-- Panel de log -->
+      <section id="log-section" hidden>
+        <h3>Log de la corrida</h3>
+        <pre id="log-pre" class="log-pre"></pre>
+        <div class="actions">
+          <button id="log-close" class="secondary" type="button">Cerrar</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <small>
+        Herramienta libre para titulares de Mi HCD (Uruguay). Ley 18.331 —
+        derecho de acceso. v<span id="ext-version">0.0.0</span>
+      </small>
+    </footer>
+
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>

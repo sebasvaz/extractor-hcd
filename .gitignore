@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Vite dev cruft
+vite.config.ts.timestamp-*.mjs
+vite.config.js.timestamp-*.mjs
+
+# Release artifacts (se adjuntan en GitHub Releases, no al repo)
+/release/
+extractor-hcd-*.zip
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# LibreOffice / Office locks
+.~lock.*#
+~$*
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Tests / coverage
+coverage/
+.nyc_output/
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# ZIP packages generados por la extensión durante testing local
+/samples/out/
+*.zip.tmp
+
+# Datos clínicos reales — NUNCA commitear
+/samples/real/
+/samples/**/private/
+# Protección extra: cualquier ZIP de capturas reales del portal
+hcd_export_*.zip

@@ -1,0 +1,48 @@
+cff-version: 1.2.0
+title: "Extractor de HCD — Extensión Chrome para Mi HCD (Uruguay)"
+message: >-
+  Si usás esta herramienta en investigación académica, citá este repositorio
+  y, cuando corresponda, la tesis que le da origen.
+type: software
+authors:
+  - given-names: Sebastián
+    family-names: Vázquez
+    email: sebasvaz@gmail.com
+    affiliation: "Universidad ORT Uruguay — Facultad de Ingeniería"
+repository-code: "https://github.com/sebasvaz/extractor-hcd"
+url: "https://github.com/sebasvaz/extractor-hcd"
+license: MIT
+version: "1.0.0"
+date-released: "2026-04-20"
+keywords:
+  - historia clínica digital
+  - Uruguay
+  - Mi HCD
+  - AGESIC
+  - Chrome extension
+  - Ley 18.331
+  - derecho de acceso
+  - IPS
+  - resumen del paciente
+  - anonimización
+abstract: >-
+  Extensión de Chrome (Manifest V3) que permite a un titular de la Historia
+  Clínica Digital uruguaya descargar localmente, en su propio dispositivo,
+  un paquete ZIP con todos sus eventos asistenciales disponibles en el
+  portal Mi HCD (historiaclinicadigital.gub.uy). La herramienta se apoya
+  en el derecho de acceso del titular (art. 14 Ley N° 18.331). Incluye
+  anonimización básica opcional para reutilización académica. Desarrollada
+  en el marco del Proyecto Final de Grado de la Licenciatura en Sistemas,
+  Universidad ORT Uruguay.
+preferred-citation:
+  type: thesis
+  title: "Generación automática del Resumen del Paciente (IPS) mediante IA Generativa"
+  authors:
+    - given-names: Sebastián
+      family-names: Vázquez
+  year: 2026
+  institution:
+    name: "Universidad ORT Uruguay"
+    address: "Montevideo, Uruguay"
+  thesis-type: "Proyecto Final de Grado — Lic. en Sistemas"
+  url: "https://github.com/sebasvaz/extractor-hcd"

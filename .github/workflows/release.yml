@@ -1,0 +1,82 @@
+name: Release
+
+# Se dispara cuando se hace push de un tag v*, por ejemplo:
+#   git tag v1.0.0 && git push origin v1.0.0
+# y crea el GitHub Release con el ZIP buildeado adjunto.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag a liberar (ej. v1.0.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install, typecheck, test, build
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Derive version from tag
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "zip=extractor-hcd-$TAG.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Package dist/ into ZIP
+        run: |
+          cd dist
+          zip -r -9 "../${{ steps.ver.outputs.zip }}" .
+          cd ..
+          ls -la "${{ steps.ver.outputs.zip }}"
+
+      - name: Compute SHA-256
+        run: |
+          sha256sum "${{ steps.ver.outputs.zip }}" > "${{ steps.ver.outputs.zip }}.sha256"
+          cat "${{ steps.ver.outputs.zip }}.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Extractor de HCD ${{ steps.ver.outputs.tag }}
+          body: |
+            Build reproducible desde `${{ github.sha }}`.
+
+            ## Instalación (carga sin empaquetar)
+            1. Descargá `${{ steps.ver.outputs.zip }}`.
+            2. Verificá el hash (opcional): `sha256sum -c ${{ steps.ver.outputs.zip }}.sha256`.
+            3. Descomprimí.
+            4. Abrí `chrome://extensions`, activá "Modo desarrollador".
+            5. "Cargar extensión sin empaquetar" → carpeta descomprimida.
+
+            Ver `README.md` y `PRIVACY.md` para la descripción completa, los
+            permisos requeridos y la base legal (art. 14 Ley N° 18.331).
+          draft: false
+          prerelease: false
+          files: |
+            ${{ steps.ver.outputs.zip }}
+            ${{ steps.ver.outputs.zip }}.sha256
