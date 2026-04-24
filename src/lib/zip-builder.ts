@@ -280,15 +280,16 @@ function readme(now: Date, anonymized: boolean): string {
     ? `Anonimización: ACTIVADA (nivel básico)
   - Se sustituyeron en los HTML los siguientes identificadores directos:
     nombre del paciente, cédula UY, teléfono UY, correo electrónico.
+  - PDFs adjuntos (CDA nivel 1 — Laboratorio): el cabezal de la primera
+    página fue redactado visualmente (banda blanca sobre el área de datos
+    personales). Se trata de redacción visual (overlay), no semántica: los
+    bytes del texto original podrían recuperarse con herramientas forenses.
+    Para un corpus de investigación con requisito de desidentificación formal
+    se recomienda una segunda pasada con pymupdf en el pipeline de ingesta.
   - No se anonimizan: profesionales, prestadores, fechas, texto clínico libre.
-  - Alcance best-effort (regex). Revisá el paquete antes de compartirlo si
-    necesitás garantía formal de desidentificación. Ver README de la
-    extensión para limitaciones.
-  - IMPORTANTE — PDFs embebidos: los documentos de Laboratorio (CDA nivel 1)
-    incluyen un PDF adjunto que CONSERVA el nombre y la CI del titular.
-    El HTML-wrapper asociado sí está anonimizado, pero el PDF no. Si vas a
-    compartir el ZIP fuera del circuito médico, redactá o excluí los PDFs
-    de docs/ antes de enviarlo.
+  - Alcance best-effort (regex + overlay). Revisá el paquete antes de
+    compartirlo si necesitás garantía formal de desidentificación. Ver README
+    de la extensión para limitaciones.
 
 `
     : `Anonimización: desactivada (el paquete contiene datos personales en claro).

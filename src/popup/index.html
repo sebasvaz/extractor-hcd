@@ -47,10 +47,17 @@
         <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
 
         <div class="options">
-          <label class="toggle" title="Sustituye nombre del paciente, cédula, teléfonos y emails del HTML por tokens. Preserva contenido clínico, fechas y profesionales.">
+          <label class="toggle" title="(1) Sustituye en el HTML nombre del paciente, cédula, teléfonos y emails por tokens. (2) Superpone un rectángulo blanco sobre la franja de datos del paciente en los PDFs de laboratorio — es redacción VISUAL, no semántica: el texto sigue en el archivo y es recuperable. La redacción formal se completa al ingerir el ZIP en la plataforma IPS (pymupdf). Preserva contenido clínico, fechas y profesionales.">
             <input id="anon-toggle" type="checkbox" />
             <span>Anonimizar datos personales <em>(básico)</em></span>
           </label>
+          <p class="toggle-hint">
+            La anonimización opera en dos capas: los HTML quedan con los
+            identificadores sustituidos por tokens; los PDFs de laboratorio
+            llevan un <b>overlay visual</b> sobre el cabezal (el texto sigue
+            dentro del archivo pero no se ve). La redacción formal del PDF
+            se completa en la Plataforma IPS al ingerir el ZIP.
+          </p>
         </div>
 
         <!-- Panel persistente de corrida completada -->

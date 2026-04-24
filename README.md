@@ -59,9 +59,15 @@ Qué *no* hace (garantías negativas):
   ni fechas — la anonimización básica se limita a identificadores directos
   del titular (ver §13). Si se necesita anonimización más agresiva, ese
   tratamiento corresponde al pipeline server-side aguas abajo.
-- No anonimiza PDFs embebidos (CDA nivel 1 con `<pre id="b64">`): el PDF se
-  preserva tal como el portal lo entregó, porque tocarlo implicaría re-OCR
-  y rebase64 sin garantías.
+- No hace redacción semántica del contenido PDF. Cuando la anonimización
+  básica está activada y el documento es CDA nivel 1 (PDF embebido en
+  `<pre id="b64">`), la extensión superpone un **rectángulo blanco sobre la
+  franja de datos del paciente** del cabezal del PDF usando `pdf-lib`. Es
+  **redacción visual**: los bytes del texto original siguen presentes en el
+  content stream del PDF y son recuperables con un selector de texto o con
+  herramientas forenses. Para redacción semántica (eliminación del stream)
+  el ZIP debe pasar por la segunda pasada `pymupdf` en el backend del
+  pipeline IPS, ver §13.
 - No hace fetch cross-origin. Solo consume el DOM de pestañas ya abiertas en
   `historiaclinicadigital.gub.uy` (host permission explícito en el manifest).
 - No envía telemetría. No hay endpoints remotos. No hay analítica.
@@ -91,6 +97,7 @@ Qué *no* hace (garantías negativas):
 | Paginación | `src/lib/pagination.ts` | Parseo del pie canónico y fallback de menú lateral. |
 | ZIP builder | `src/lib/zip-builder.ts` | Assembly del paquete; `metadata.json` conforme a Anexo A. |
 | Anonimización | `src/lib/anonymization/index.ts` | Motor opcional de anonimización básica: tokeniza nombre, CI UY, tel UY, email con consistencia cross-document. |
+| Redacción PDF | `src/lib/pdf-redact.ts` | Overlay visual (rectángulo blanco opaco + `pdf-lib`) sobre la franja de datos del paciente en el cabezal de cada PDF embebido. Se activa junto con el toggle de anonimización. |
 | Log circular | `src/lib/log.ts` | `CircularLog` en memoria, serializable a `log.txt`. |
 | Hash | `src/lib/hash.ts` | SHA-256 vía `crypto.subtle`. |
 
@@ -434,18 +441,72 @@ análisis sin revelar el valor original.
 - **Atributos de HTML**: la anonimización nunca toca el interior de los
   tags (por ejemplo, un `mailto:foo@bar.com` en un `href` queda intacto),
   sólo actúa sobre texto visible para evitar romper estructura.
-- **PDFs embebidos** (CDA nivel 1 con `<pre id="b64">`): el base64 del PDF
-  se preserva tal como vino del portal, porque tocarlo implicaría
-  decodificar, re-OCR-ear y recodificar con pérdida de garantías. En la
-  práctica esto significa que los documentos de **Laboratorio** (que el
-  portal entrega como CDA nivel 1 con un PDF adjunto) **conservan el
-  nombre y la CI del titular dentro del PDF**, aunque el HTML-wrapper
-  que genera la extensión sí queda anonimizado y el nombre no aparece
-  ahí. El `README.txt` del ZIP advierte explícitamente sobre este punto.
-  Si el ZIP se va a compartir con un tercero fuera del circuito médico,
-  los PDFs de lab hay que anonimizarlos aparte (p. ej. con
-  `qpdf --linearize` + un redactor PDF) o excluirlos del paquete antes
-  de enviar.
+**Qué sí hace la extensión con los PDFs embebidos** (CDA nivel 1 con
+`<pre id="b64">`, típicamente resultados de Laboratorio):
+
+Cuando la anonimización básica está activada, además del reemplazo en el
+HTML-wrapper, la extensión **superpone un rectángulo blanco opaco**
+(`pdf-lib`) sobre la franja de datos del paciente en **cada página** del
+PDF adjunto, acompañado de la etiqueta `[DATOS PERSONALES REDACTADOS]`.
+La banda está posicionada para cubrir la tabla Nombre / Identificación /
+Orden / Matrícula / Prestador / Fecha del estudio, dejando visible por
+arriba el encabezado institucional del laboratorio (logo, dirección,
+directora técnica) y por debajo los títulos clínicos del estudio
+("HEMOGRAMA", "Método: …", etc.), que no son datos personales y se
+preservan por trazabilidad. El código vive en
+[`src/lib/pdf-redact.ts`](src/lib/pdf-redact.ts); los parámetros de
+posición son dos constantes `HEADER_REDACT_TOP_OFFSET_PT` y
+`HEADER_REDACT_HEIGHT_PT` tuneables a vista si algún prestador emite con
+un layout distinto.
+
+**Esto es redacción visual, no semántica.** El rectángulo cubre
+ópticamente los datos pero **los bytes del texto original siguen intactos
+en el content stream del PDF**. En un visor PDF estándar el texto sigue
+siendo seleccionable y copiable aunque no se vea, y cualquier herramienta
+forense puede extraerlo. Es una capa de "higiene visual" —el PDF no
+muestra nombre ni CI en pantalla— pero **no** es desidentificación
+formal.
+
+**Por qué es razonable dejar la redacción visual como primera pasada y
+diferir la real al pipeline server-side:**
+
+1. La extensión corre en un Service Worker MV3 (limitado en memoria y
+   sin DOM) — cargar un parser/renderer PDF completo capaz de eliminar
+   bytes del content stream agregaría ~2 MB al bundle con riesgos
+   conocidos de pdf.js en SW MV3.
+2. Para este proyecto de investigación, todo ZIP pasa por el backend de
+   la Plataforma IPS antes de que el texto llegue a cualquier LLM. Ese
+   backend aplica [`app/ips/pdf_redact.py`](../platform/backend/app/ips/pdf_redact.py)
+   usando `pymupdf` (`page.add_redact_annot` + `page.apply_redactions`),
+   que **busca el nombre y la CI del titular en cada página y elimina
+   el texto del content stream** — redacción real. Ese ZIP redactado es
+   el que se persiste en `ingest_zip()` y alimenta el resto del
+   pipeline.
+3. El overlay visual de la extensión **no interfiere** con la pasada
+   pymupdf — pymupdf trabaja sobre los objetos de texto del stream, no
+   sobre rectángulos de anotación. Aplicarse las dos es idempotente.
+
+**Limitación conocida del overlay visual de la extensión** (por diseño,
+best-effort):
+
+La banda se dibuja en una posición fija de cada página. Si un prestador
+distinto emite el PDF con los datos del paciente en otra zona (p. ej.
+pie de página, columna lateral), esa instancia **no queda cubierta
+visualmente** por la extensión. En ese caso el dato sigue estando
+redactado textualmente en el HTML-wrapper (donde sí lo captura el
+anonimizador basado en regex), y vuelve a quedar cubierto en la pasada
+pymupdf del backend — que opera por búsqueda de texto y no por
+coordenadas, de modo que encuentra el dato independientemente de dónde
+esté en la página. La capa visual de la extensión es complemento
+cosmético, no línea de defensa única.
+
+**Si la extensión se usa fuera del pipeline IPS** (p. ej. el titular
+quiere compartir el ZIP con alguien que no va a pasarlo por la
+plataforma), y si importa que el texto PDF no sea recuperable, entonces
+hay que aplicar redacción real externa al ZIP antes de compartirlo (por
+ejemplo con `pymupdf` localmente, o con `qpdf --linearize` + un redactor
+PDF que elimine del stream). El `README.txt` dentro del ZIP explicita
+esto cuando la corrida fue anonimizada.
 
 **Cómo se verifica en el paquete:**
 

@@ -263,6 +263,18 @@ button:disabled {
   font-size: 11px;
 }
 
+.toggle-hint {
+  margin: 4px 0 0 22px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+
+.toggle-hint b {
+  color: var(--color-fg);
+  font-weight: 600;
+}
+
 .done-panel {
   background: #e6f4ea;
   border: 1px solid #ceead6;

@@ -55,9 +55,11 @@ ningún dominio fuera de `historiaclinicadigital.gub.uy`.**
 
 **Con nadie.** La extensión no tiene backend, no usa servicios de
 analytics, no envía telemetría, no incluye publicidad ni trackers, no usa
-SDKs de terceros que comuniquen datos hacia afuera. El único componente
-externo es JSZip (empaquetado localmente con la extensión, no cargado
-desde CDN), que corre íntegramente en el navegador.
+SDKs de terceros que comuniquen datos hacia afuera. Los dos componentes
+externos son JSZip (empaquetado del corpus) y `pdf-lib` (redacción visual
+del cabezal de los PDFs de laboratorio cuando la anonimización básica
+está activada), ambos **empaquetados localmente con la extensión, no
+cargados desde CDN**, y ambos corren íntegramente en el navegador.
 
 ## 5. Qué pasa con el ZIP resultante
 
@@ -67,8 +69,23 @@ IA, destruirlo— es decisión del usuario y responsabilidad del usuario.
 
 Si el ZIP va a compartirse con terceros, recomendamos activar la
 anonimización básica al iniciar la corrida (ver §13 del README). Tener en
-cuenta las limitaciones documentadas (en particular: los PDFs embebidos
-de Laboratorio **no** se anonimizan).
+cuenta las limitaciones documentadas; en particular, sobre los PDFs
+embebidos de Laboratorio (CDA nivel 1):
+
+- Cuando la anonimización básica está activada, la extensión **superpone
+  un rectángulo blanco** sobre la franja de datos del paciente en cada
+  página del PDF. Eso impide que el nombre, la CI, etc. se vean al abrir
+  el archivo en un visor.
+- Esto es **redacción visual, no semántica**: los bytes del texto
+  original permanecen en el content stream del PDF y son recuperables
+  con un selector de texto o con herramientas forenses. Un visor PDF
+  estándar permite, por ejemplo, seleccionar "invisible" sobre la banda
+  blanca y copiar el dato.
+- Para desidentificación formal (eliminación real del stream), el ZIP
+  debe pasar por la segunda pasada con `pymupdf` en el backend del
+  pipeline IPS del proyecto (o por una herramienta equivalente fuera de
+  la extensión). El `README.txt` incluido dentro del ZIP explicita este
+  punto cuando la corrida fue anonimizada.
 
 ## 6. Base legal (Uruguay)
 

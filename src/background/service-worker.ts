@@ -35,6 +35,7 @@ import { CircularLog } from '@lib/log';
 import { eventFileName } from '@lib/slug';
 import { URLS } from '@lib/selectors';
 import { createAnonymizer, type Anonymizer } from '@lib/anonymization';
+import { redactPdfHeader } from '@lib/pdf-redact';
 
 // ---------------------------------------------------------------------------
 // Estado global (vive mientras el SW esté activo)
@@ -388,9 +389,31 @@ async function scrapeAll(tabId: number): Promise<void> {
           // va a rehashear el archivo y esperar que matchee).
           let doc: CapturedDocument = rawDoc;
           if (run.anonymizer) {
+            // 1) Anonimizar HTML (nombre, CI, tel, email)
             const anonHtml = run.anonymizer.apply(rawDoc.html);
             const anonSha = await sha256Hex(anonHtml);
             doc = { ...rawDoc, html: anonHtml, sha256: anonSha };
+
+            // 2) Redactar cabezal del PDF adjunto (CDA nivel 1)
+            if (doc.attachmentBase64 && doc.attachmentMime === 'application/pdf') {
+              const pdfResult = await redactPdfHeader(
+                doc.attachmentBase64,
+                doc.attachmentSha256 ?? '',
+              );
+              if (pdfResult.ok) {
+                doc = {
+                  ...doc,
+                  attachmentBase64: pdfResult.base64,
+                  attachmentSha256: pdfResult.sha256,
+                };
+                log.info('PDF adjunto redactado', { id: doc.id });
+              } else {
+                log.warn('Redacción de PDF omitida — adjunto se incluye sin redactar', {
+                  id: doc.id,
+                  reason: pdfResult.reason,
+                });
+              }
+            }
           }
 
           // Red de seguridad contra duplicados: si ya habíamos capturado
