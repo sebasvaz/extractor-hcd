@@ -641,8 +641,14 @@ async function getPersistedProgress(): Promise<RunProgress | null> {
 
 /**
  * Construye `BuildZipArgs` respetando `exactOptionalPropertyTypes`: solo
- * incluye `anonymized` / `anonymizationScope` cuando la corrida es
- * anonimizada (no los pasa como `undefined`).
+ * incluye `anonymized` / `anonymizationScope` / `anonymizationManifest`
+ * cuando la corrida es anonimizada (no los pasa como `undefined`).
+ *
+ * El `anonymizationManifest` (Fase 2 de ADR-003) lleva el detalle que el
+ * backend de la plataforma usa para distinguir archivos ya anonimizados
+ * upstream del resto. Incluye versión de la extensión, tokens canónicos
+ * emitidos, stats agregados y la lista de paths que pasaron por
+ * `Anonymizer.apply()` (los HTML del CDA; los PDFs adjuntos no se tocan).
  */
 function buildZipArgsFromRun(fallbackStartedAt: string): import('@lib/zip-builder').BuildZipArgs {
   const base: import('@lib/zip-builder').BuildZipArgs = {
@@ -656,6 +662,14 @@ function buildZipArgsFromRun(fallbackStartedAt: string): import('@lib/zip-builde
   if (run.anonymizer !== null) {
     base.anonymized = true;
     base.anonymizationScope = 'basic';
+    base.anonymizationManifest = {
+      by: 'mi-hcd-extension',
+      version: chrome.runtime.getManifest().version,
+      scope: 'basic',
+      tokens: ['[PACIENTE]', '[CI]', '[TEL_N]', '[EMAIL_N]'],
+      stats: run.anonymizer.stats(),
+      files: run.capturedDocs.map((d) => `docs/${d.id}.html`),
+    };
   }
   return base;
 }

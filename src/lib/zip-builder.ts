@@ -22,6 +22,7 @@
 
 import JSZip from 'jszip';
 
+import type { AnonymizerStats } from './anonymization';
 import type { CapturedDocument, CaptureError, LogEntry } from './messaging/types';
 import { slugify, zipFileName } from './slug';
 
@@ -30,6 +31,43 @@ import { slugify, zipFileName } from './slug';
 // ---------------------------------------------------------------------------
 
 export const SCHEMA_VERSION = '1.0';
+
+/**
+ * Marcador formal de pre-anonimización (ADR-003, 2026-05-19).
+ *
+ * Cuando la corrida pasó por `createAnonymizer().apply()`, este bloque se
+ * inscribe en `metadata.json.anonymization` para que el backend de la
+ * plataforma sepa qué archivos fueron tocados y con qué tokens canónicos.
+ *
+ * El backend lo usa de dos formas:
+ *
+ * - Evidencia primaria: los archivos listados en `files` quedan exentos
+ *   del gate de revisión humana si la detección textual de sentinelas
+ *   también pasa. La doble verificación (marcador + sentinelas) evita
+ *   confiar a ciegas en un productor que dice una cosa pero no la cumple.
+ * - Anomalía bloqueante: si `files` declara un archivo y los sentinelas
+ *   no aparecen al escanearlo, se emite warning
+ *   `"declared_but_no_sentinels"` que sí sigue exigiendo revisión.
+ *
+ * Reusable también desde el composer FHIR (Provenance del IPS final).
+ */
+export type AnonymizationManifest = {
+  /** Identificador del productor — fijo en la extensión Mi HCD. */
+  by: 'mi-hcd-extension';
+  /** Versión de la extensión que generó este ZIP (chrome.runtime.getManifest().version). */
+  version: string;
+  /** Alcance de anonimización aplicado. Hoy solo `basic`. */
+  scope: 'basic';
+  /** Tokens canónicos que la extensión escribió en los archivos. */
+  tokens: string[];
+  /** Estadísticas internas del Anonymizer al cierre de la corrida. */
+  stats: AnonymizerStats;
+  /**
+   * Lista de paths dentro del ZIP que pasaron por `Anonymizer.apply()`.
+   * Solo contiene HTML del CDA — los PDFs adjuntos no se tocan acá.
+   */
+  files: string[];
+};
 
 export type HCDExportMetadata = {
   schemaVersion: '1.0';
@@ -49,9 +87,18 @@ export type HCDExportMetadata = {
    * `anonymizationScope` indica el nivel aplicado (por ahora solo `'basic'`
    * — ver `lib/anonymization`). Ausente cuando el usuario optó por no
    * anonimizar.
+   *
+   * Estos dos campos legacy se conservan por compatibilidad con consumidores
+   * anteriores a Fase 2 (ADR-003). El marcador detallado vive en
+   * `anonymization` debajo.
    */
   anonymized?: boolean;
   anonymizationScope?: 'basic';
+  /**
+   * Marcador formal de pre-anonimización (Fase 2 de ADR-003). Ausente
+   * cuando la corrida no anonimiza.
+   */
+  anonymization?: AnonymizationManifest;
   totals: {
     expected: number;
     captured: number;
@@ -108,6 +155,13 @@ export type BuildZipArgs = {
    */
   anonymized?: boolean;
   anonymizationScope?: 'basic';
+  /**
+   * Manifesto detallado de la anonimización (Fase 2 de ADR-003). Si está
+   * presente, se inscribe en `metadata.json.anonymization` y el backend
+   * de la plataforma lo cruza con el escaneo de sentinelas para decidir
+   * el gate de revisión humana.
+   */
+  anonymizationManifest?: AnonymizationManifest;
   /** Opcional: sobreescribir el reloj (para tests). */
   now?: Date;
 };
@@ -234,6 +288,9 @@ export function buildMetadata(args: BuildZipArgs, now: Date = new Date()): HCDEx
   if (args.anonymized) {
     out.anonymized = true;
     out.anonymizationScope = args.anonymizationScope ?? 'basic';
+  }
+  if (args.anonymizationManifest) {
+    out.anonymization = args.anonymizationManifest;
   }
   return out;
 }

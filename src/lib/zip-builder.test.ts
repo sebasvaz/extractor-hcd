@@ -197,6 +197,58 @@ describe('buildMetadata', () => {
     expect(meta.anonymizationScope).toBe('basic');
   });
 
+  // ADR-003: el marcador formal `anonymization` se emite con toda la
+  // info que el backend usa para distinguir HCDs pre-anonimizados.
+  it('emite bloque anonymization cuando se le pasa anonymizationManifest', () => {
+    const meta = buildMetadata({
+      patient: { displayName: 'X' },
+      expected: 1,
+      documents: [makeDoc({ id: 'cda-1' })],
+      errors: [],
+      log: emptyLog,
+      startedAt: '2026-04-15T11:55:00.000Z',
+      anonymized: true,
+      anonymizationScope: 'basic',
+      anonymizationManifest: {
+        by: 'mi-hcd-extension',
+        version: '1.1.0',
+        scope: 'basic',
+        tokens: ['[PACIENTE]', '[CI]', '[TEL_N]', '[EMAIL_N]'],
+        stats: {
+          patientNames: ['juan perez'],
+          telephones: 2,
+          emails: 0,
+          cedulas: 1,
+        },
+        files: ['docs/cda-1.html'],
+      },
+    });
+    expect(meta.anonymization).toBeDefined();
+    expect(meta.anonymization!.by).toBe('mi-hcd-extension');
+    expect(meta.anonymization!.version).toBe('1.1.0');
+    expect(meta.anonymization!.scope).toBe('basic');
+    expect(meta.anonymization!.tokens).toContain('[PACIENTE]');
+    expect(meta.anonymization!.tokens).toContain('[CI]');
+    expect(meta.anonymization!.files).toEqual(['docs/cda-1.html']);
+    expect(meta.anonymization!.stats.cedulas).toBe(1);
+  });
+
+  it('omite el bloque anonymization cuando no se pasa manifest', () => {
+    const meta = buildMetadata({
+      patient: { displayName: 'X' },
+      expected: 1,
+      documents: [makeDoc()],
+      errors: [],
+      log: emptyLog,
+      startedAt: '2026-04-15T11:55:00.000Z',
+      // anonymized=true sin manifest: el flag legacy sale, pero el
+      // bloque detallado no.
+      anonymized: true,
+      anonymizationScope: 'basic',
+    });
+    expect('anonymization' in meta).toBe(false);
+  });
+
   it('exportedAt usa el `now` inyectado (test determinístico)', () => {
     const fixed = new Date('2026-04-15T12:00:00.000Z');
     const meta = buildMetadata(
