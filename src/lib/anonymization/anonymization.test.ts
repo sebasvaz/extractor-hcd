@@ -16,6 +16,7 @@ import {
   normalizePatientName,
   buildPatientNameRegex,
   extractPatientNamesFromHtml,
+  anonymizeCdaHeaderDocumento,
   RE_CEDULA,
   RE_TEL_UY,
   RE_EMAIL,
@@ -310,5 +311,99 @@ describe('createAnonymizer().apply — integración', () => {
     // Stats lo reportan
     const s = a.stats();
     expect(s.patientNames).toContain('sebastia vazquez');
+  });
+});
+
+describe('anonymizeCdaHeaderDocumento (Incidente I-01, 2026-05-23)', () => {
+  it('tokeniza el campo Documento con ID de 9 dígitos (AEPC)', () => {
+    const html =
+      '<td class="td_header_role_name"><span class="td_label">Documento</span></td>' +
+      '<td class="td_header_role_value">133199101</td>';
+    const out = anonymizeCdaHeaderDocumento(html);
+    expect(out).not.toContain('133199101');
+    expect(out).toContain('[ID]');
+  });
+
+  it('tokeniza el campo Documento con ID de 6 dígitos (CAMEC)', () => {
+    const html =
+      '<td class="td_header_role_name"><span class="td_label">Documento</span></td>' +
+      '<td class="td_header_role_value">122437</td>';
+    const out = anonymizeCdaHeaderDocumento(html);
+    expect(out).not.toContain('122437');
+    expect(out).toContain('[ID]');
+  });
+
+  it('tokeniza ID alfanumérico (otros prestadores)', () => {
+    const html =
+      '<td class="td_label">Documento</td><td class="td_header_role_value">AB-12345</td>';
+    const out = anonymizeCdaHeaderDocumento(html);
+    expect(out).not.toContain('AB-12345');
+    expect(out).toContain('[ID]');
+  });
+
+  it('es idempotente: no toca un valor que ya es token', () => {
+    const html =
+      '<td class="td_label">Documento</td><td class="td_header_role_value">[ID]</td>';
+    const out = anonymizeCdaHeaderDocumento(html);
+    expect(out).toContain('[ID]');
+    // El segundo paso no debería romper la salida (idempotencia clave para
+    // que la pasada estructural se pueda invocar varias veces sin daño).
+    expect(anonymizeCdaHeaderDocumento(out)).toBe(out);
+  });
+
+  it('preserva valor vacío (campo en blanco)', () => {
+    const html =
+      '<td class="td_label">Documento</td><td class="td_header_role_value"></td>';
+    const out = anonymizeCdaHeaderDocumento(html);
+    expect(out).toBe(html);
+  });
+
+  it('preserva valores ya redactados (asteriscos, guiones, N/A)', () => {
+    for (const v of ['***', 'XXX', '---', 'N/A']) {
+      const html =
+        `<td class="td_label">Documento</td><td class="td_header_role_value">${v}</td>`;
+      const out = anonymizeCdaHeaderDocumento(html);
+      expect(out).toBe(html);
+    }
+  });
+
+  it('case-insensitive en la etiqueta (DOCUMENTO, Documento, documento)', () => {
+    for (const label of ['DOCUMENTO', 'Documento', 'documento']) {
+      const html =
+        `<td class="td_label">${label}</td><td class="td_header_role_value">99988877</td>`;
+      const out = anonymizeCdaHeaderDocumento(html);
+      expect(out).not.toContain('99988877');
+      expect(out).toContain('[ID]');
+    }
+  });
+
+  it('NO toca el campo Nombre ni otros campos del header', () => {
+    const html =
+      '<td class="td_label">Nombre</td><td class="td_header_role_value">SEBASTIAN VAZQUEZ</td>' +
+      '<td class="td_label">Fecha de nacimiento</td><td class="td_header_role_value">Septiembre 12, 1989</td>';
+    const out = anonymizeCdaHeaderDocumento(html);
+    expect(out).toContain('SEBASTIAN VAZQUEZ');
+    expect(out).toContain('Septiembre 12, 1989');
+  });
+
+  it('integración: createAnonymizer().apply() tokeniza Documento aún sin nombre conocido', () => {
+    const a = createAnonymizer(); // sin seedPatientNames
+    const html =
+      '<html><body><table><tr>' +
+      '<td class="td_header_role_name"><span class="td_label">Nombre</span></td>' +
+      '<td class="td_header_role_value">SEBASTIAN VAZQUEZ</td></tr><tr>' +
+      '<td class="td_header_role_name"><span class="td_label">Documento</span></td>' +
+      '<td class="td_header_role_value">133199101</td></tr></table>' +
+      '<p>Consulta por dolor lumbar.</p>' +
+      '</body></html>';
+    const out = a.apply(html);
+    // El ID interno se tokeniza por el structural check.
+    expect(out).not.toContain('133199101');
+    expect(out).toContain('[ID]');
+    // El nombre se tokeniza por el extractor de nombres + regex de texto.
+    expect(out).not.toContain('SEBASTIAN VAZQUEZ');
+    expect(out).toContain('[PACIENTE]');
+    // Texto clínico intacto.
+    expect(out).toContain('dolor lumbar');
   });
 });

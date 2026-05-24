@@ -16,7 +16,11 @@
  *
  * Tokens resultantes:
  *   [PACIENTE]        — todas las ocurrencias del mismo paciente mapean aquí
- *   [CI]              — toda cédula detectada
+ *   [CI]              — toda cédula uruguaya canónica detectada (7-8 dígitos)
+ *   [ID]              — identificador interno del prestador en el header del
+ *                       CDA (HCEN/EMPI/id del prestador). Shape variable
+ *                       (6/9 dígitos o alfanumérico). Pasada estructural,
+ *                       no regex de dígitos. Incidente I-01 (2026-05-23).
  *   [TEL_N]           — enumerados por orden de aparición, consistentes en
  *                       toda la corrida (misma cédula / mismo teléfono →
  *                       mismo token N en todos los documentos).
@@ -130,12 +134,22 @@ export function createAnonymizer(options: AnonymizerOptions = {}): Anonymizer {
       for (const extracted of extractPatientNamesFromHtml(html)) {
         patientNames.add(extracted);
       }
-      return anonymizeTextNodesOnly(html, {
+      // 2) Pasada estructural — Incidente I-01 (2026-05-23). El header
+      //    del CDA salud.uy expone el identificador interno del paciente
+      //    (HCEN/EMPI/id del prestador) en una celda adyacente a la
+      //    etiqueta "Documento". Su shape varía por prestador (9 dígitos
+      //    AEPC, 6 dígitos CAMEC, posiblemente alfanumérico) así que la
+      //    regex de CI uruguaya (7-8 dígitos) no lo cubre. Reemplazamos
+      //    el valor antes de la pasada de texto general para garantizar
+      //    tokenización independiente del shape.
+      let tokenized = anonymizeCdaHeaderDocumento(html);
+      tokenized = anonymizeTextNodesOnly(tokenized, {
         patientNames,
         tokenForTel,
         tokenForEmail,
         noteCedula,
       });
+      return tokenized;
     },
     registerPatientName(name: string): void {
       const norm = normalizePatientName(name);
@@ -217,6 +231,70 @@ export function anonymizeTextNodesOnly(html: string, ctx: ReplacementContext): s
   }
   return out.join('');
 }
+
+// ---------------------------------------------------------------------------
+// Pasada estructural — header CDA salud.uy: campo "Documento"
+// ---------------------------------------------------------------------------
+
+/**
+ * Token con el que se reemplaza el valor del campo "Documento" del
+ * header del CDA. NO se reusa ``[CI]`` (que está reservado para la
+ * cédula uruguaya canónica) porque el identificador puede ser HCEN,
+ * EMPI, o id interno del prestador. La capa defensiva del backend
+ * (``pii_residual_check._CDA_TOKEN_OR_REDACTED``) acepta cualquier
+ * token con shape ``[A-Z_0-9]+``.
+ */
+const CDA_DOCUMENTO_TOKEN = '[ID]';
+
+/**
+ * Regex que matchea el par ``<td>...Documento...</td><td>VALOR</td>`` del
+ * header CDA salud.uy. Tolera:
+ *
+ *   - ``<span class="td_label">Documento</span>`` dentro del primer ``<td>``
+ *     (es el shape canónico del XSLT salud.uy) o el texto directo "Documento"
+ *     en el ``<td>``.
+ *   - Whitespace y newlines entre tags.
+ *   - Case-insensitive en "Documento".
+ *
+ * La regex es global y se aplica por iteración con replace callback para
+ * preservar atributos del segundo ``<td>``. El grupo capturado es el
+ * contenido textual del segundo ``<td>``.
+ */
+const RE_CDA_HEADER_DOCUMENTO =
+  /<td\b[^>]*>\s*(?:<span\b[^>]*class\s*=\s*["'][^"']*\btd_label\b[^"']*["'][^>]*>\s*)?Documento\s*(?:<\/span\s*>)?\s*<\/td\s*>\s*<td\b([^>]*class\s*=\s*["'][^"']*\btd_header_role_value\b[^"']*["'][^>]*)>\s*([^<]*?)\s*<\/td\s*>/gi;
+
+/**
+ * Regex que determina si un valor ya es un token aceptable y por lo tanto
+ * no necesita ser reemplazado. Cubre tokens canónicos (``[ALGO]``),
+ * cadenas de redacción (``***``, ``XXX``, ``---``), ``N/A`` y vacío.
+ *
+ * Tiene que coincidir con la equivalente del backend
+ * (``pii_residual_check._CDA_TOKEN_OR_REDACTED``) para que cualquier
+ * tokenización legítima del front no se considere PII residual en el
+ * server.
+ */
+const RE_CDA_TOKEN_OR_REDACTED = /^\s*(?:\[[A-Z_0-9]+\]|\*+|[Xx]+|[-—]+|N\/?A|n\/?a)?\s*$/;
+
+/**
+ * Reemplaza el valor del campo "Documento" del header del CDA por un
+ * token ``[ID]``. Si el valor ya está tokenizado o vacío, se preserva
+ * tal cual (idempotente). Si la regex no encuentra el par de celdas,
+ * devuelve el HTML sin tocar.
+ *
+ * Exportado para tests. Idempotente y seguro de llamar múltiples veces.
+ */
+export function anonymizeCdaHeaderDocumento(html: string): string {
+  return html.replace(
+    RE_CDA_HEADER_DOCUMENTO,
+    (full, attrs: string, value: string) => {
+      if (RE_CDA_TOKEN_OR_REDACTED.test(value)) {
+        return full;
+      }
+      return `<td class="td_header_role_name"><span class="td_label">Documento</span></td><td${attrs}>${CDA_DOCUMENTO_TOKEN}</td>`;
+    },
+  );
+}
+
 
 function applyTextReplacements(text: string, ctx: ReplacementContext): string {
   if (text.length === 0) return text;
