@@ -304,7 +304,13 @@ describe('createAnonymizer().apply — integración', () => {
     const out = a.apply(portalHtml);
     expect(out).not.toContain('SEBASTIA VAZQUEZ');
     expect(out).toContain('[PACIENTE]');
-    expect(out).toContain('[CI]'); // la CI 4225368 (7 dígitos) también
+    // El valor del campo Documento (4225368) se tokeniza. Desde v1.3.0
+    // (Incidente I-01) la pasada estructural lo reemplaza con [ID]
+    // ANTES de que el regex de CI uruguaya pueda actuar, así que el
+    // token efectivo en ese slot es [ID]. Lo que importa semánticamente
+    // es que el número NO aparezca en claro.
+    expect(out).not.toContain('4225368');
+    expect(out).toContain('[ID]');
     // El texto clínico se preserva (excepto el nombre, ya tokenizado).
     expect(out).toContain('dolor lumbar');
     expect(out).toContain('evolución estable');
