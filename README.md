@@ -47,6 +47,12 @@ Qué hace la extensión:
     `anonymized` / `anonymizationScope` si la corrida fue anonimizada).
   - `log.txt` con el log circular de la corrida.
   - `README.txt` humano.
+  - `visor.html`: visor local de la historia para el titular. Se abre con
+    doble click después de descomprimir el ZIP y funciona sin conexión:
+    línea de tiempo, filtros por categoría, año y prestador, búsqueda en el
+    texto de todos los documentos, y el documento original al costado (en un
+    `iframe` con `sandbox`, sin ejecutar scripts del portal). Los PDF
+    adjuntos se muestran con el lector del navegador.
   - `docs/<fecha>_<categoria>_<descripcion>.html` por evento capturado.
 - **Auto-descarga** del ZIP al completar: dispara `chrome.downloads` con
   `saveAs: true` para que el titular elija carpeta. Si falla el diálogo, el
@@ -98,6 +104,7 @@ Qué *no* hace (garantías negativas):
 | ZIP builder | `src/lib/zip-builder.ts` | Assembly del paquete; `metadata.json` conforme a Anexo A. |
 | Anonimización | `src/lib/anonymization/index.ts` | Motor opcional de anonimización básica: tokeniza nombre, CI UY, tel UY, email con consistencia cross-document. |
 | Redacción PDF | `src/lib/pdf-redact.ts` | Overlay visual (rectángulo blanco opaco + `pdf-lib`) sobre la franja de datos del paciente en el cabezal de cada PDF embebido. Se activa junto con el toggle de anonimización. |
+| Visor local | `src/lib/viewer/` | Genera `visor.html`: un HTML autocontenido con el índice y el texto de búsqueda embebidos como JSON, CSP sin red. Con anonimización no muestra el nombre del titular. |
 | Log circular | `src/lib/log.ts` | `CircularLog` en memoria, serializable a `log.txt`. |
 | Hash | `src/lib/hash.ts` | SHA-256 vía `crypto.subtle`. |
 
