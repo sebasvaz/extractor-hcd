@@ -8,6 +8,7 @@
  *   ├── metadata.json     (schema v1.0 — Anexo A)
  *   ├── log.txt           (log circular de la corrida)
  *   ├── README.txt        (instrucciones humanas)
+ *   ├── visor.html        (visor local para el titular — ver lib/viewer)
  *   └── docs/
  *       └── <fecha>_<categoria>_<descripcion>.html   (un archivo por evento)
  *
@@ -25,6 +26,7 @@ import JSZip from 'jszip';
 import type { AnonymizerStats } from './anonymization';
 import type { CapturedDocument, CaptureError, LogEntry } from './messaging/types';
 import { slugify, zipFileName } from './slug';
+import { buildViewerHtml, VIEWER_FILE } from './viewer';
 
 // ---------------------------------------------------------------------------
 // Tipos alineados al JSON Schema del Anexo A
@@ -187,6 +189,7 @@ export async function buildZip(args: BuildZipArgs): Promise<BuildZipResult> {
   zip.file('metadata.json', JSON.stringify(metadata, null, 2));
   zip.file('log.txt', serializeLog(args.log));
   zip.file('README.txt', readme(now, Boolean(args.anonymized)));
+  zip.file(VIEWER_FILE, buildViewerHtml(metadata, args.documents));
 
   // docs/
   const docsFolder = zip.folder('docs');
@@ -360,7 +363,16 @@ Este paquete fue generado por la extensión "Extractor de HCD" a partir de
 la sesión autenticada del titular en el portal Mi HCD
 (historiaclinicadigital.gub.uy).
 
+Para leer tu historia clínica:
+  1. Descomprimí el ZIP completo en una carpeta (en Windows: botón derecho
+     > "Extraer todo"; en Mac: doble click sobre el ZIP).
+  2. Abrí visor.html con doble click. Se abre en tu navegador y funciona
+     sin conexión a internet: no envía ningún dato a ningún lado.
+  Si abrís visor.html sin descomprimir antes, los documentos aparecen en
+  blanco.
+
 Contenido:
+  - visor.html    : visor de la historia (línea de tiempo, filtros y búsqueda).
   - metadata.json : índice completo de la corrida (schema v1.0).
   - log.txt       : log de operación (sin contenido clínico).
   - docs/         : un archivo HTML por evento asistencial capturado.
