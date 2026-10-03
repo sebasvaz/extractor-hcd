@@ -27,6 +27,7 @@ import type { HCDExportMetadata } from '../zip-builder';
 
 import viewerCss from './viewer.css?raw';
 import viewerJs from './viewer-client.js?raw';
+import viewerLoaderJs from './viewer-loader.js?raw';
 
 /** Nombre del visor dentro del ZIP (raíz). */
 export const VIEWER_FILE = 'visor.html';
@@ -96,12 +97,47 @@ export function buildViewerHtml(metadata: HCDExportMetadata, documents: Captured
   const data = buildViewerData(metadata, documents);
   // `<` escapado: el JSON no puede cerrar el <script> que lo contiene.
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
+  return page({
+    frameSrc: "'self' file:",
+    body: `<script type="application/json" id="hcd-data">${json}</script>
+<script>
+${viewerJs}
+</script>`,
+  });
+}
+
+/** Nombre del visor suelto que se publica con cada release. */
+export const STANDALONE_VIEWER_FILE = 'visor-hc.html';
+
+/**
+ * Visor suelto para ZIPs descargados antes de que el paquete trajera
+ * `visor.html`: el titular abre `visor-hc.html` y elige su ZIP, que se lee en
+ * el navegador con JSZip (inline, `jszipSource` = `jszip.min.js`) sin salir
+ * de la computadora. Los documentos se muestran con `srcdoc` (HTML) o URLs
+ * `blob:` (PDF), así que no hace falta descomprimir nada.
+ */
+export function buildStandaloneViewerHtml(jszipSource: string): string {
+  return page({
+    frameSrc: 'blob:',
+    body: `<script>
+${jszipSource.replace(/<\/script/gi, '<\\/script')}
+</script>
+<script>
+${viewerJs}
+</script>
+<script>
+${viewerLoaderJs}
+</script>`,
+  });
+}
+
+function page(opts: { frameSrc: string; body: string }): string {
   const csp = [
     "default-src 'none'",
     "script-src 'unsafe-inline'",
     "style-src 'unsafe-inline'",
-    'img-src data:',
-    "frame-src 'self' file:",
+    'img-src data: blob:',
+    `frame-src ${opts.frameSrc}`,
     "connect-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
@@ -121,10 +157,7 @@ ${viewerCss}
 <body>
 <noscript><p class="noscript">El visor necesita JavaScript. Los documentos también pueden abrirse uno por uno desde la carpeta <code>docs/</code>.</p></noscript>
 <div id="app"></div>
-<script type="application/json" id="hcd-data">${json}</script>
-<script>
-${viewerJs}
-</script>
+${opts.body}
 </body>
 </html>
 `;

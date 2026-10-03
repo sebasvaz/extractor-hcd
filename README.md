@@ -53,6 +53,9 @@ Qué hace la extensión:
     texto de todos los documentos, y el documento original al costado (en un
     `iframe` con `sandbox`, sin ejecutar scripts del portal). Los PDF
     adjuntos se muestran con el lector del navegador.
+    Para ZIPs descargados con versiones anteriores, que no traen el visor,
+    cada Release publica `visor-hc.html`: se abre con doble click, se elige
+    el ZIP (sin descomprimir) y se lee en el navegador sin internet.
   - `docs/<fecha>_<categoria>_<descripcion>.html` por evento capturado.
 - **Auto-descarga** del ZIP al completar: dispara `chrome.downloads` con
   `saveAs: true` para que el titular elija carpeta. Si falla el diálogo, el
@@ -105,6 +108,7 @@ Qué *no* hace (garantías negativas):
 | Anonimización | `src/lib/anonymization/index.ts` | Motor opcional de anonimización básica: tokeniza nombre, CI UY, tel UY, email con consistencia cross-document. |
 | Redacción PDF | `src/lib/pdf-redact.ts` | Overlay visual (rectángulo blanco opaco + `pdf-lib`) sobre la franja de datos del paciente en el cabezal de cada PDF embebido. Se activa junto con el toggle de anonimización. |
 | Visor local | `src/lib/viewer/` | Genera `visor.html`: un HTML autocontenido con el índice y el texto de búsqueda embebidos como JSON, CSP sin red. Con anonimización no muestra el nombre del titular. |
+| Visor suelto | `src/lib/viewer/viewer-loader.js`, `scripts/build-visor-suelto.ts` | `npm run build:visor` genera `visor-hc.html` para ZIPs descargados antes de que existiera `visor.html`: el titular elige su ZIP y se lee en el navegador con JSZip inline, sin red. Se publica con cada Release. |
 | Log circular | `src/lib/log.ts` | `CircularLog` en memoria, serializable a `log.txt`. |
 | Hash | `src/lib/hash.ts` | SHA-256 vía `crypto.subtle`. |
 

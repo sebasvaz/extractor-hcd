@@ -20,6 +20,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "build:visor": "vite-node scripts/build-visor-suelto.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -42,6 +43,7 @@
     "prettier": "^3.2.5",
     "typescript": "^5.4.3",
     "vite": "^5.2.6",
+    "vite-node": "^1.6.1",
     "vitest": "^1.4.0"
   }
 }

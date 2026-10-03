@@ -95,6 +95,51 @@ svg.ico { flex-shrink: 0; }
   color: #9fdcc3; font-size: 11.5px; line-height: 1.35;
 }
 
+.nav-reopen { margin-top: 8px; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ─── Visor suelto: elegir el ZIP ───────────────────────────────── */
+.load { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.load-card {
+  width: 100%; max-width: 560px; overflow: hidden; background: var(--ips-surface);
+  border: 1px solid var(--ips-border); border-radius: 14px; box-shadow: 0 10px 40px rgba(11,18,32,.08);
+}
+.load-band {
+  display: flex; align-items: center; gap: 10px; padding: 18px 24px;
+  background: linear-gradient(135deg, var(--ips-navy) 0%, var(--ips-brand) 100%);
+}
+.load-body { padding: 24px; }
+.load-body h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 4px; }
+.load-body > p { font-size: 13.5px; color: var(--ips-ink-2); margin: 0 0 18px; }
+.drop {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px;
+  border: 2px dashed var(--ips-brand-border); border-radius: 12px; background: var(--ips-bg); text-align: center;
+  transition: background .15s, border-color .15s;
+}
+.drop.over { background: var(--ips-brand-soft); border-color: var(--ips-brand); }
+.drop[aria-busy="true"] { opacity: .6; pointer-events: none; }
+.drop-icon {
+  width: 52px; height: 52px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 4px;
+  background: var(--ips-brand-soft); color: var(--ips-brand-ink);
+}
+.drop b { font-size: 14px; font-weight: 600; }
+.drop-or { font-size: 12px; color: var(--ips-ink-4); }
+.drop .btn { height: 38px; padding: 0 16px; }
+.drop-file { margin-top: 4px; font-size: 11px; color: var(--ips-ink-4); font-family: var(--ips-font-mono); }
+.load-status {
+  display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+  font-size: 12.5px; background: var(--ips-brand-soft); color: var(--ips-brand-ink); border: 1px solid var(--ips-brand-border);
+}
+.load-status.error { background: #FDEDEC; color: #8F2A2A; border-color: #F3C5C0; }
+.load-status[hidden] { display: none; }
+.load-note {
+  display: flex; align-items: flex-start; gap: 8px; margin-top: 16px; font-size: 12px; color: var(--ips-ink-3);
+}
+.load-note .ico { color: var(--ips-ok); margin-top: 1px; }
+
 /* ─── Columna de contenido ───────────────────────────────────────── */
 .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .mtop { display: none; }
