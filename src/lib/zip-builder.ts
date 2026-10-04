@@ -85,6 +85,11 @@ export type HCDExportMetadata = {
     documentHash?: string;
   };
   /**
+   * Quién generó el ZIP (desde v1.9.0). Campo adicional al schema 1.0: la
+   * plataforma lo acepta (`HcdMetadata` usa extra="allow").
+   */
+  producer?: { name: 'extractor-hcd'; version: string };
+  /**
    * Si la corrida aplicó anonimización, queda registrado a nivel paquete.
    * `anonymizationScope` indica el nivel aplicado (por ahora solo `'basic'`
    * — ver `lib/anonymization`). Ausente cuando el usuario optó por no
@@ -112,8 +117,12 @@ export type HCDExportMetadata = {
     categoria: string;
     fecha: string;
     prestador?: string;
+    /** Nombre completo del prestador (desde v1.9.0). */
+    prestadorNombre?: string;
     profesional?: string;
     descripcion?: string;
+    /** Resultados leídos del PDF adjunto (desde v1.9.0); nunca el texto del PDF. */
+    analitos?: import('./pdf-analitos').Analito[];
     visualizarUrl: string;
     captureUrl: string;
     capturedAt: string;
@@ -250,9 +259,11 @@ export function buildMetadata(args: BuildZipArgs, now: Date = new Date()): HCDEx
       sha256: d.sha256,
     };
     if (d.prestador !== undefined) out.prestador = d.prestador;
+    if (d.prestadorNombre !== undefined) out.prestadorNombre = d.prestadorNombre;
     if (d.profesional !== undefined) out.profesional = d.profesional;
     if (d.descripcion !== undefined) out.descripcion = d.descripcion;
     if (d.attachmentBase64 && d.attachmentMime === 'application/pdf') {
+      if (d.analitos?.length) out.analitos = d.analitos;
       out.attachmentFile = `docs/${d.id}.pdf`;
       out.attachmentMime = 'application/pdf';
       if (d.attachmentSha256) out.attachmentSha256 = d.attachmentSha256;
@@ -303,6 +314,9 @@ export function buildMetadata(args: BuildZipArgs, now: Date = new Date()): HCDEx
   }
   if (args.anonymizationManifest) {
     out.anonymization = args.anonymizationManifest;
+  }
+  if (args.extensionVersion) {
+    out.producer = { name: 'extractor-hcd', version: args.extensionVersion };
   }
   return out;
 }

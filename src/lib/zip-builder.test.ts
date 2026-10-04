@@ -265,3 +265,35 @@ describe('buildMetadata', () => {
     expect(meta.exportedAt).toBe('2026-04-15T12:00:00.000Z');
   });
 });
+
+describe('metadata v1.9', () => {
+  const base = {
+    patient: { displayName: 'Juan Pérez' },
+    expected: 1,
+    errors: [],
+    log: emptyLog,
+    startedAt: '2026-04-15T11:55:00.000Z',
+  };
+
+  it('declara quién generó el ZIP', () => {
+    const meta = buildMetadata({ ...base, documents: [makeDoc()], extensionVersion: '1.9.0' });
+    expect(meta.producer).toEqual({ name: 'extractor-hcd', version: '1.9.0' });
+  });
+
+  it('incluye el nombre completo del prestador y los analitos del PDF', () => {
+    const analito = { nombre: 'Glucemia', valor: 98, texto: '98', unidad: 'mg/dl', ref: null, fuera: '' as const };
+    const meta = buildMetadata({
+      ...base,
+      documents: [makeDoc({
+        prestadorNombre: 'Administración de los Servicios de Salud del Estado',
+        attachmentBase64: 'JVBERi0=',
+        attachmentMime: 'application/pdf',
+        analitos: [analito],
+      })],
+    });
+    const d = meta.documents[0]!;
+    expect(d.prestadorNombre).toBe('Administración de los Servicios de Salud del Estado');
+    expect(d.analitos).toEqual([analito]);
+  });
+});
+

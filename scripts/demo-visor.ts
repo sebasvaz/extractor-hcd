@@ -9,7 +9,9 @@ import { join } from 'node:path';
 import JSZip from 'jszip';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 
+import pkg from '../package.json';
 import type { CapturedDocument, CaptureError } from '../src/lib/messaging/types';
+import { analitosDePdf } from '../src/lib/pdf-analitos';
 import { buildZip } from '../src/lib/zip-builder';
 
 const out = process.argv[2] ?? 'samples/out/demo-visor';
@@ -103,12 +105,15 @@ async function main(): Promise<void> {
     ['2026-08-12', '13.5', '98', '212'],
   ];
   for (const [fecha, hb, glu, col] of labs) {
+    const pdf = await pdfBase64(hb, glu, col);
     docs.push({
       id: `${fecha}_laboratorio_hemograma`, categoria: 'Laboratorio', fecha,
       prestador: 'CASMU', descripcion: 'Hemograma y bioquímica', visualizarUrl: 'https://example.test/v',
       captureUrl: 'https://example.test/c', capturedAt: '2026-10-03T12:00:00.000Z', sha256: '0'.repeat(64),
       html: '<!DOCTYPE html><html><body>portada</body></html>',
-      attachmentBase64: await pdfBase64(hb, glu, col), attachmentMime: 'application/pdf',
+      attachmentBase64: pdf, attachmentMime: 'application/pdf',
+      // Como el service worker desde v1.9.0: los analitos se leen al descargar.
+      analitos: await analitosDePdf(pdf),
     });
   }
   const errors: CaptureError[] = [
@@ -122,6 +127,7 @@ async function main(): Promise<void> {
   const { blob, filename } = await buildZip({
     patient: { displayName: 'Paciente Ficticio' }, expected: docs.length + errors.length,
     documents: docs, errors, log: [], startedAt: '2026-10-03T11:50:00.000Z', anonymized: true,
+    extensionVersion: pkg.version,
   });
   mkdirSync(out, { recursive: true });
   const buf = Buffer.from(await blob.arrayBuffer());

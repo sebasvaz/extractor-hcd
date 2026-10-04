@@ -40,6 +40,7 @@ import {
 import { parseSidebarCount, parseTotalRecordsLine } from '@lib/pagination';
 import { CATEGORIAS } from '@lib/categories';
 import { hideOverlay, showOverlay, updateOverlay } from './overlay';
+import { parseTimelineRow } from '@lib/timeline-row';
 
 // ---------------------------------------------------------------------------
 // Solo ejecutamos la lógica en el top frame. El iframe CONTENIDOHTML también
@@ -179,11 +180,16 @@ function listEventsOnCurrentPage(): EventMetadata[] {
     const fechaIso = findFechaInText(rowText);
     if (!fechaIso) return;
 
-    const descripcion = extractDescripcion(row, categoria, rowText);
-    const prestador = extractCell(row, ['Prestador', 'Institución']);
-    const profesional = extractCell(row, ['Profesional', 'Médico']);
+    // El id se sigue armando con la descripción de siempre (el bloque más largo
+    // de la fila): cambiarlo haría que la próxima descarga vea todos los
+    // documentos como nuevos y dejaría huérfanos los favoritos y las notas.
+    const descripcionId = extractDescripcion(row, categoria, rowText);
+    const fila = parseTimelineRow((row.innerText || row.textContent || ''));
+    const descripcion = fila.descripcion ?? descripcionId;
+    const prestador = fila.prestador ?? extractCell(row, ['Prestador', 'Institución']);
+    const profesional = fila.profesional ?? extractCell(row, ['Profesional', 'Médico']);
 
-    const provisionalId = `${fechaIso}_${slug(categoria)}_${slug(descripcion ?? '')}`;
+    const provisionalId = `${fechaIso}_${slug(categoria)}_${slug(descripcionId ?? '')}`;
     if (seen.has(provisionalId)) return;
     seen.add(provisionalId);
 
@@ -193,8 +199,10 @@ function listEventsOnCurrentPage(): EventMetadata[] {
       fecha: fechaIso,
     };
     if (prestador !== undefined) meta.prestador = prestador;
+    if (fila.prestadorNombre !== undefined) meta.prestadorNombre = fila.prestadorNombre;
     if (profesional !== undefined) meta.profesional = profesional;
     if (descripcion !== undefined) meta.descripcion = descripcion;
+    if (descripcionId !== undefined) meta.idDescripcion = descripcionId;
 
     currentRows.push({ anchor: a, row, meta });
   };
@@ -434,6 +442,7 @@ async function waitForDetailAndExtract(meta: EventMetadata): Promise<CapturedDoc
     categoria: meta.categoria,
     fecha: meta.fecha,
     ...(meta.prestador !== undefined ? { prestador: meta.prestador } : {}),
+    ...(meta.prestadorNombre !== undefined ? { prestadorNombre: meta.prestadorNombre } : {}),
     ...(meta.profesional !== undefined ? { profesional: meta.profesional } : {}),
     ...(meta.descripcion !== undefined ? { descripcion: meta.descripcion } : {}),
     visualizarUrl,

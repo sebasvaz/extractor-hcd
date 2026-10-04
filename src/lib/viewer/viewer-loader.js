@@ -115,6 +115,8 @@
           id: d.id, file: d.file, categoria: d.categoria || 'Otros', fecha: d.fecha || ''
         };
         if (d.prestador) out.prestador = d.prestador;
+        if (d.prestadorNombre) out.prestadorNombre = d.prestadorNombre;
+        if (Array.isArray(d.analitos) && d.analitos.length) out.analitos = d.analitos;
         if (d.profesional) out.profesional = d.profesional;
         if (d.descripcion) out.descripcion = d.descripcion;
         var pdfEntry = d.attachmentFile && zip.file(prefix + d.attachmentFile);
