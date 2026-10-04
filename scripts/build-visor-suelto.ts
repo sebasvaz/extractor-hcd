@@ -14,8 +14,13 @@ import { buildStandaloneViewerHtml, STANDALONE_VIEWER_FILE } from '../src/lib/vi
 const outDir = process.argv[2] ?? 'release';
 const require = createRequire(import.meta.url);
 const jszip = readFileSync(require.resolve('jszip/dist/jszip.min.js'), 'utf8');
+// pdf.js (Apache 2.0) para "Mis análisis": solo en el visor suelto.
+const pdfjs = {
+  lib: readFileSync(require.resolve('pdfjs-dist/build/pdf.min.js'), 'utf8'),
+  worker: readFileSync(require.resolve('pdfjs-dist/build/pdf.worker.min.js'), 'utf8'),
+};
 
 mkdirSync(outDir, { recursive: true });
 const out = join(outDir, STANDALONE_VIEWER_FILE);
-writeFileSync(out, buildStandaloneViewerHtml(jszip));
+writeFileSync(out, buildStandaloneViewerHtml(jszip, pdfjs));
 console.log(out);

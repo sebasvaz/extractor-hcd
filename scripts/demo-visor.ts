@@ -63,14 +63,25 @@ ${cat === 'Vacunas' ? VACUNAS : ''}
 </body></html>`;
 }
 
-async function pdfBase64(): Promise<string> {
+async function pdfBase64(hb: string, glu: string, col: string): Promise<string> {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595, 842]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const lines = ['LABORATORIO - DATOS FICTICIOS', '', 'Hemograma completo', 'Hemoglobina 13.5 g/dL (12-16)',
-    'Leucocitos 6.800 /mm3 (4.000-10.000)', 'Plaquetas 245.000 /mm3', '', 'Glucemia 98 mg/dL (70-110)',
-    'Colesterol total 212 mg/dL (< 200)'];
-  lines.forEach((t, i) => page.drawText(t, { x: 60, y: 760 - i * 22, size: 13, font }));
+  page.drawText('LABORATORIO - DATOS FICTICIOS', { x: 60, y: 780, size: 13, font });
+  // Columnas separadas, como los informes reales: analito | valor | unidad | referencia.
+  const filas: Array<[string, string, string, string]> = [
+    ['Hemoglobina', hb, 'g/dL', '12 - 16'],
+    ['Leucocitos', '6800', '/mm3', '4000 - 10000'],
+    ['Glucemia', glu, 'mg/dl', '70 - 110'],
+    ['Colesterol total', col, 'mg/dl', '< 200'],
+  ];
+  filas.forEach(([a, v, u, r], i) => {
+    const y = 730 - i * 22;
+    page.drawText(a, { x: 60, y, size: 12, font });
+    page.drawText(v, { x: 240, y, size: 12, font });
+    page.drawText(u, { x: 310, y, size: 12, font });
+    page.drawText(r, { x: 390, y, size: 12, font });
+  });
   return Buffer.from(await pdf.save()).toString('base64');
 }
 
@@ -86,13 +97,20 @@ async function main(): Promise<void> {
       html: cdaHtml(fecha, cat, desc, body, prest, prof, i === 0),
     };
   });
-  docs.push({
-    id: '2026-08-12_laboratorio_hemograma', categoria: 'Laboratorio', fecha: '2026-08-12',
-    prestador: 'CASMU', descripcion: 'Hemograma y bioquímica', visualizarUrl: 'https://example.test/v',
-    captureUrl: 'https://example.test/c', capturedAt: '2026-10-03T12:00:00.000Z', sha256: '0'.repeat(64),
-    html: '<!DOCTYPE html><html><body>portada</body></html>',
-    attachmentBase64: await pdfBase64(), attachmentMime: 'application/pdf',
-  });
+  const labs: Array<[string, string, string, string]> = [
+    ['2024-10-04', '12.8', '104', '226'],
+    ['2025-06-20', '13.1', '118', '214'],
+    ['2026-08-12', '13.5', '98', '212'],
+  ];
+  for (const [fecha, hb, glu, col] of labs) {
+    docs.push({
+      id: `${fecha}_laboratorio_hemograma`, categoria: 'Laboratorio', fecha,
+      prestador: 'CASMU', descripcion: 'Hemograma y bioquímica', visualizarUrl: 'https://example.test/v',
+      captureUrl: 'https://example.test/c', capturedAt: '2026-10-03T12:00:00.000Z', sha256: '0'.repeat(64),
+      html: '<!DOCTYPE html><html><body>portada</body></html>',
+      attachmentBase64: await pdfBase64(hb, glu, col), attachmentMime: 'application/pdf',
+    });
+  }
   const errors: CaptureError[] = [
     { meta: { categoria: 'Laboratorio', fecha: '2024-02-01', descripcion: 'Perfil lipídico' }, message: 'timeout', occurredAt: '2026-10-03T12:00:00.000Z' },
   ];

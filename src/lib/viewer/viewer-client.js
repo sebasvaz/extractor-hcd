@@ -65,6 +65,9 @@
     pill: '<rect x="2.8" y="7.2" width="14.4" height="5.6" rx="2.8" transform="rotate(-45 10 10)"/><path d="m7.9 7.9 4.2 4.2"/>',
     grid: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>',
     star: '<path d="m10 3 2.1 4.4 4.9.6-3.6 3.4.9 4.8L10 13.9l-4.3 2.3.9-4.8L3 8l4.9-.6z"/>',
+    ips: '<path d="M10 3 4 5.5V10c0 3.5 2.6 6.2 6 7 3.4-.8 6-3.5 6-7V5.5z"/><path d="M7.5 10h5M10 7.5v5"/>',
+    chart: '<path d="M3 3v14h14"/><path d="m6 13 3.5-4 3 2.5L17 6"/>',
+    users: '<circle cx="7.5" cy="7" r="2.5"/><path d="M3 16a4.5 4.5 0 0 1 9 0"/><circle cx="14" cy="8" r="2"/><path d="M13 12.2a3.8 3.8 0 0 1 4.5 3.8"/>',
     note: '<path d="M4 16.5V13l8.5-8.5 3.5 3.5L7.5 16.5z"/><path d="m11 6 3.5 3.5"/>',
     plus: '<path d="M10 4v12M4 10h12"/>',
     check: '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>',
@@ -390,9 +393,19 @@
         try { window.localStorage.setItem('hcd:' + k, JSON.stringify(v)); } catch (e) { /* sin almacenamiento */ }
       }
     };
-    var favs = store.get('favs', {});
-    var notas = store.get('notas', {});
-    var consulta = store.get('consulta', []).filter(function (id) { return byId[id]; });
+    // Favoritos, notas y consulta van por persona: dos historias de la familia
+    // pueden tener documentos con el mismo id. La huella usa los 10 documentos
+    // más antiguos, que no cambian entre una descarga y la siguiente.
+    var persona = (function () {
+      var ids = docs.slice().sort(function (a, b) { return (a.fecha || '').localeCompare(b.fecha || '') || a.id.localeCompare(b.id); })
+        .slice(0, 10).map(function (d) { return d.id; }).join('|');
+      var x = 5381;
+      for (var i = 0; i < ids.length; i++) x = ((x << 5) + x + ids.charCodeAt(i)) | 0;
+      return 'p' + (x >>> 0).toString(36);
+    })();
+    var favs = store.get(persona + ':favs', {});
+    var notas = store.get(persona + ':notas', {});
+    var consulta = store.get(persona + ':consulta', []).filter(function (id) { return byId[id]; });
     var conResumen = store.get('consulta-resumen', true);
 
     // Qué hay de nuevo: contra la descarga anterior de la misma historia
@@ -437,9 +450,9 @@
     var nRepetidos = Object.keys(repetidos).length;
 
     function guardarSeguimiento() {
-      store.set('favs', favs);
-      store.set('notas', notas);
-      store.set('consulta', consulta);
+      store.set(persona + ':favs', favs);
+      store.set(persona + ':notas', notas);
+      store.set(persona + ':consulta', consulta);
       store.set('consulta-resumen', conResumen);
     }
     var totals = data.totals || {};
@@ -473,7 +486,9 @@
       return vocab;
     }
 
-    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1, siglas: 1, consulta: 1 };
+    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1, siglas: 1, consulta: 1, ips: 1, analisis: 1 };
+    var ips = null;
+    var ipsError = '';
     function enPanel() { return PANELES[state.view] && !state.sel; }
 
     /** Variantes de la búsqueda con sinónimos (HTA ↔ hipertensión arterial). */
@@ -487,6 +502,15 @@
       return [].concat.apply([], variantes()).filter(function (t) { return !vistos[t] && (vistos[t] = true); });
     }
     function filtered() { return Boolean(state.q || state.cat || state.year || state.prest || state.esp || state.fav || state.nuevos || state.ocultarRep); }
+
+    /** ¿El documento contiene todos los términos de alguna variante de la búsqueda? */
+    function coincide(d, vs) {
+      return vs.some(function (ts) {
+        var hay = notas[d.id] ? d._hay + ' \n ' + norm(notas[d.id]) : d._hay;
+        for (var i = 0; i < ts.length; i++) if (hay.indexOf(ts[i]) === -1) return false;
+        return true;
+      });
+    }
 
     function filtrar() {
       var vs = variantes();
@@ -502,11 +526,7 @@
         if (state.nuevos && !nuevos.ids[d.id]) return false;
         if (state.ocultarRep && repetidos[d.id]) return false;
         if (!vs.length) return true;
-        return vs.some(function (ts) {
-          var hay = notas[d.id] ? d._hay + ' \n ' + norm(notas[d.id]) : d._hay;
-          for (var i = 0; i < ts.length; i++) if (hay.indexOf(ts[i]) === -1) return false;
-          return true;
-        });
+        return coincide(d, vs);
       });
       visible.sort(function (a, b) {
         var c = (a.fecha || '').localeCompare(b.fecha || '') || a._i - b._i;
@@ -593,6 +613,16 @@
               h('div', { class: 'nav-sub', text: 'Plataforma IPS' })
             ])
           ]),
+          opts.personas && opts.personas.length > 1 ? h('label', { class: 'personas' }, [
+            ico('users', 14),
+            h('span', { class: 'visually-hidden', text: 'Historia de' }),
+            (function () {
+              var sel = h('select', { 'aria-label': 'Historia de', onchange: function () { opts.onPersona(+sel.value); } },
+                opts.personas.map(function (p, i) { return h('option', { value: String(i), text: p.nombre }); }));
+              opts.personas.forEach(function (p, i) { if (p.actual) sel.value = String(i); });
+              return sel;
+            })()
+          ]) : null,
           h('div', { class: 'nav-meta' }, [
             h('div', { class: 'nav-meta-date', text: 'Descargada ' + fechaCorta((data.exportedAt || '').slice(0, 10)) }),
             h('div', { class: 'nav-meta-gen', text: plural(docs.length, 'documento', 'documentos') + ' · ' + periodo })
@@ -609,6 +639,12 @@
               function () { go({ view: 'list', cat: '', prest: '', esp: '' }); })
           ]),
           h('div', { class: 'nav-group' }, [
+            groupLabel('Plataforma IPS'),
+            navLink('Mi Resumen del Paciente', 'ips', null,
+              function () { return state.view === 'ips' && !state.sel; },
+              function () { go({ view: 'ips' }, null); })
+          ]),
+          h('div', { class: 'nav-group' }, [
             groupLabel('Mi seguimiento'),
             navLink('Llevar a la consulta', 'print', function () { return consulta.length; },
               function () { return state.view === 'consulta' && !state.sel; },
@@ -616,7 +652,7 @@
             navLink('Favoritos', 'star', function () { return Object.keys(favs).length; },
               function () { return state.view === 'list' && state.fav; },
               function () { go({ view: 'list', fav: true, nuevos: false, cat: '', prest: '', esp: '' }); }),
-            nuevos.desde ? navLink('Nuevos', 'sparkle', nuevos.n,
+            nuevos.desde && nuevos.n ? navLink('Nuevos', 'sparkle', nuevos.n,
               function () { return state.view === 'list' && state.nuevos; },
               function () { go({ view: 'list', nuevos: true, fav: false, cat: '', prest: '', esp: '' }); }) : null
           ]),
@@ -631,6 +667,9 @@
             navLink('Medicamentos', 'pill', medicamentos.length || null,
               function () { return state.view === 'medicamentos' && !state.sel; },
               function () { go({ view: 'medicamentos' }, null); }),
+            docs.some(function (d) { return d.pdf; }) ? navLink('Mis análisis', 'chart', function () { return lab ? lab.series.length : 0; },
+              function () { return state.view === 'analisis' && !state.sel; },
+              function () { go({ view: 'analisis' }, null); }) : null,
             navLink('Siglas', 'abc', siglas.length || null,
               function () { return state.view === 'siglas' && !state.sel; },
               function () { go({ view: 'siglas' }, null); }),
@@ -662,7 +701,7 @@
           ]),
           h('div', { class: 'offline' }, [ico('shield', 16), h('span', { text: opts.offlineText || 'Funciona sin internet. Nada sale de esta carpeta.' })]),
           opts.onReopen ? h('button', { class: 'nav-link nav-reopen', type: 'button', onclick: opts.onReopen },
-            [h('span', { class: 'ni' }, [ico('file', 16)]), 'Abrir otro ZIP']) : null,
+            [h('span', { class: 'ni' }, [ico('file', 16)]), opts.reopenLabel || 'Abrir otro ZIP']) : null,
           origin('origin-dark', data)
         ])
       ]);
@@ -798,6 +837,10 @@
       medicamentos: { titulo: 'Mis medicamentos', icono: 'pill', fg: '#166534', bg: '#e6f5ee' },
       equipo: { titulo: 'Mis médicos y prestadores', icono: 'especialidad', fg: '#0F4675', bg: '#E8F1F9' },
       siglas: { titulo: 'Siglas de tu historia', icono: 'abc', fg: '#3D2A94', bg: '#EEEAFB' },
+      analisis: { titulo: 'Mis análisis', icono: 'chart', fg: '#1e4f9c', bg: '#e8f0fb',
+        desc: 'Valores leídos de los PDF de laboratorio, en el tiempo. Pueden faltar o leerse mal algunos: verificá siempre en el PDF original.' },
+      ips: { titulo: 'Mi Resumen del Paciente (IPS)', icono: 'ips', fg: '#3D2A94', bg: '#EEEAFB',
+        desc: 'Lo generó la Plataforma IPS con inteligencia artificial a partir de tu historia. Puede tener errores: verificá cada dato en tus documentos.' },
       consulta: { titulo: 'Llevar a la consulta', icono: 'print', fg: '#0F4675', bg: '#E8F1F9',
         desc: 'Los documentos que elegiste, juntos en un solo documento para imprimir o guardar como PDF.' }
     };
@@ -952,6 +995,325 @@
       ]);
     }
 
+    // ---- Mis análisis: laboratorio graficado (solo en visor-hc.html) --------
+
+    var lab = null;
+    var labLeyendo = null; // { hechos, total }
+    var labFiltro = '';
+    var labSel = null;
+    var SINONIMOS_LAB = { glicemia: 'glucemia', 'glucosa en sangre': 'glucemia', hematies: 'globulos rojos', eritrocitos: 'globulos rojos' };
+
+    function claveAnalito(n) {
+      var k = norm(n).replace(/[^a-z0-9%#]+/g, ' ').trim();
+      return SINONIMOS_LAB[k] || k;
+    }
+
+    function leerAnalisis() {
+      if (lab || labLeyendo || !opts.leerPdf || !window.HCDLab) return;
+      var lista = docs.filter(function (d) { return d.pdf; }).sort(function (a, b) { return (a.fecha || '').localeCompare(b.fecha || ''); });
+      var series = {};
+      labLeyendo = { hechos: 0, total: lista.length };
+      lista.reduce(function (p, d) {
+        return p.then(function () {
+          return opts.leerPdf(d).then(function (ls) {
+            // Lo leído del PDF también se puede buscar.
+            d._hay += ' \n ' + norm(ls.join(' '));
+            var a = window.HCDLab.analitos(ls);
+            var conRef = a.filter(function (x) { return x.ref; }).length;
+            // Solo informes de laboratorio (o PDF con resultados con referencia): no medidas sueltas de otros informes.
+            if (d.categoria !== 'Laboratorio' && conRef < 2) return;
+            a.forEach(function (x) {
+              var k = claveAnalito(x.nombre);
+              if (!k) return;
+              var sr = series[k] || (series[k] = { clave: k, nombres: {}, unidades: {}, puntos: [] });
+              sr.nombres[x.nombre] = (sr.nombres[x.nombre] || 0) + 1;
+              if (x.unidad) sr.unidades[x.unidad] = (sr.unidades[x.unidad] || 0) + 1;
+              if (!sr.puntos.some(function (pt) { return pt.doc === d; })) {
+                sr.puntos.push({ fecha: d.fecha, valor: x.valor, texto: x.texto, unidad: x.unidad, ref: x.ref, fuera: x.fuera, doc: d });
+              }
+            });
+          }).catch(function () { /* PDF ilegible: se sigue con el resto */ }).then(function () {
+            labLeyendo.hechos += 1;
+            var bar = panelEl && panelEl.querySelector('.lab-progreso');
+            if (bar) {
+              bar.querySelector('.covbar-fill').style.width = Math.round(labLeyendo.hechos / labLeyendo.total * 100) + '%';
+              bar.querySelector('.covbar-sub').textContent = 'Leyendo PDF ' + labLeyendo.hechos + ' de ' + labLeyendo.total + '…';
+            }
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        var masUsado = function (o) { return Object.keys(o).sort(function (a, b) { return o[b] - o[a]; })[0] || ''; };
+        lab = {
+          leidos: lista.length,
+          // Una serie donde todos los valores llevan comparador ("<200", ">45") suele ser
+          // la columna de referencia leída como valor: se descarta.
+          series: Object.keys(series).filter(function (k) {
+            return !series[k].puntos.every(function (pt) { return /^[<>≤≥]/.test(pt.texto); });
+          }).map(function (k) {
+            var sr = series[k];
+            sr.nombre = sentence(masUsado(sr.nombres));
+            sr.unidad = masUsado(sr.unidades);
+            sr.puntos.sort(function (a, b) { return (a.fecha || '').localeCompare(b.fecha || ''); });
+            sr.ultimo = sr.puntos[sr.puntos.length - 1];
+            return sr;
+          }).sort(function (a, b) { return b.puntos.length - a.puntos.length || a.nombre.localeCompare(b.nombre); })
+        };
+        labLeyendo = null;
+        vocab = null;
+        if (state.view === 'analisis') renderPanel();
+        render();
+      });
+    }
+
+    function estadoValor(pt) {
+      if (pt.fuera === 'alto') return h('span', { class: 'lab-flag' }, [ico('warn', 12), 'Alto']);
+      if (pt.fuera === 'bajo') return h('span', { class: 'lab-flag' }, [ico('warn', 12), 'Bajo']);
+      return null;
+    }
+
+    /** Gráfico de una serie: línea 2px, puntos con anillo, banda de referencia, tooltip y último valor rotulado. */
+    function grafico(sr, w, hgt, mini) {
+      var NS = 'http://www.w3.org/2000/svg';
+      function el(tag, at) { var e = document.createElementNS(NS, tag); for (var k in at) e.setAttribute(k, at[k]); return e; }
+      var pts = sr.puntos.filter(function (p) { return parseFecha(p.fecha); });
+      var svg = el('svg', { viewBox: '0 0 ' + w + ' ' + hgt, class: mini ? 'spark' : 'lab-chart', role: 'img',
+        'aria-label': sr.nombre + ': ' + pts.length + ' valores' + (sr.ultimo ? ', último ' + sr.ultimo.texto + ' ' + (sr.unidad || '') : '') });
+      if (!pts.length) return svg;
+      var pad = mini ? { l: 3, r: 3, t: 3, b: 3 } : { l: 46, r: 56, t: 14, b: 30 };
+      var t = function (p) { return Date.UTC(+p.fecha.slice(0, 4), +p.fecha.slice(5, 7) - 1, +p.fecha.slice(8, 10)); };
+      var t0 = t(pts[0]), t1 = t(pts[pts.length - 1]);
+      if (t1 === t0) { t0 -= 864e5 * 30; t1 += 864e5 * 30; }
+      var ref = (sr.ultimo && sr.ultimo.ref) || pts.map(function (p) { return p.ref; }).filter(Boolean)[0] || null;
+      var vals = pts.map(function (p) { return p.valor; });
+      if (ref && ref.min !== null) vals.push(ref.min);
+      if (ref && ref.max !== null) vals.push(ref.max);
+      var v0 = Math.min.apply(null, vals), v1 = Math.max.apply(null, vals);
+      var m = (v1 - v0) * 0.12 || Math.abs(v1) * 0.1 || 1;
+      v0 = Math.max(0, v0 - m); v1 += m;
+      var X = function (p) { return pad.l + (t(p) - t0) / (t1 - t0) * (w - pad.l - pad.r); };
+      var Y = function (v) { return hgt - pad.b - (v - v0) / (v1 - v0) * (hgt - pad.t - pad.b); };
+      if (ref) {
+        var ya = ref.max !== null ? Y(ref.max) : pad.t, yb = ref.min !== null ? Y(ref.min) : hgt - pad.b;
+        svg.appendChild(el('rect', { x: pad.l, y: Math.min(ya, yb), width: w - pad.l - pad.r, height: Math.abs(yb - ya), class: 'lab-ref' }));
+      }
+      if (!mini) {
+        var fmt = function (v) { return Math.abs(v) >= 100 ? Math.round(v) : Math.round(v * 10) / 10; };
+        [v0, (v0 + v1) / 2, v1].forEach(function (v) {
+          svg.appendChild(el('line', { x1: pad.l, x2: w - pad.r, y1: Y(v), y2: Y(v), class: 'lab-gridline' }));
+          var tx = el('text', { x: pad.l - 6, y: Y(v) + 4, 'text-anchor': 'end', class: 'lab-axis' });
+          tx.textContent = String(fmt(v)).replace('.', ',');
+          svg.appendChild(tx);
+        });
+        // Eje de tiempo: un rótulo por año (si son muchos años, cada dos o más).
+        var y0 = +pts[0].fecha.slice(0, 4), y1 = +pts[pts.length - 1].fecha.slice(0, 4);
+        var paso = Math.max(1, Math.ceil((y1 - y0 + 1) / 8));
+        for (var yy = y0; yy <= y1 + 1; yy += paso) {
+          var tt = Date.UTC(yy, 0, 1);
+          if (tt < t0 || tt > t1) continue;
+          var xx = pad.l + (tt - t0) / (t1 - t0) * (w - pad.l - pad.r);
+          svg.appendChild(el('line', { x1: xx, x2: xx, y1: hgt - pad.b, y2: hgt - pad.b + 4, class: 'lab-gridline' }));
+          var ty = el('text', { x: xx, y: hgt - 8, 'text-anchor': 'middle', class: 'lab-axis' });
+          ty.textContent = String(yy);
+          svg.appendChild(ty);
+        }
+        if (y0 === y1) {
+          var tz = el('text', { x: X(pts[0]), y: hgt - 8, 'text-anchor': 'start', class: 'lab-axis' });
+          tz.textContent = fechaCorta(pts[0].fecha);
+          svg.appendChild(tz);
+        }
+      }
+      if (pts.length > 1) {
+        svg.appendChild(el('path', { d: pts.map(function (p, i) { return (i ? 'L' : 'M') + X(p).toFixed(1) + ' ' + Y(p.valor).toFixed(1); }).join(' '),
+          class: 'lab-line' }));
+      }
+      pts.forEach(function (p) {
+        svg.appendChild(el('circle', { cx: X(p), cy: Y(p.valor), r: mini ? 2.2 : 4.5, class: 'lab-dot' + (p.fuera ? ' fuera' : '') }));
+        if (!mini) {
+          var hit = el('circle', { cx: X(p), cy: Y(p.valor), r: 12, class: 'lab-hit', tabindex: '0',
+            'aria-label': fechaCorta(p.fecha) + ': ' + p.texto + ' ' + (p.unidad || sr.unidad || '') + (p.fuera ? ', ' + p.fuera : '') });
+          hit.addEventListener('mouseenter', function () { tooltip(svg, p, X(p), Y(p.valor), w, sr); });
+          hit.addEventListener('focus', function () { tooltip(svg, p, X(p), Y(p.valor), w, sr); });
+          hit.addEventListener('mouseleave', function () { tooltip(svg, null); });
+          hit.addEventListener('blur', function () { tooltip(svg, null); });
+          hit.addEventListener('click', function () { select(p.doc.id); });
+          svg.appendChild(hit);
+        }
+      });
+      if (!mini && sr.ultimo) {
+        var lt = el('text', { x: X(sr.ultimo) + 9, y: Y(sr.ultimo.valor) + 4, class: 'lab-last' });
+        lt.textContent = sr.ultimo.texto;
+        svg.appendChild(lt);
+      }
+      return svg;
+    }
+
+    function tooltip(svg, p, x, y, w, sr) {
+      var box = svg.parentNode;
+      var tip = box && box.querySelector('.lab-tip');
+      if (!tip) return;
+      if (!p) { tip.hidden = true; return; }
+      tip.textContent = fechaCorta(p.fecha) + ' · ' + p.texto + ' ' + (p.unidad || sr.unidad || '') + (p.fuera ? ' · ' + (p.fuera === 'alto' ? 'Alto' : 'Bajo') : '');
+      tip.hidden = false;
+      var r = svg.getBoundingClientRect();
+      var k = r.width / w;
+      tip.style.left = Math.min(r.width - 140, Math.max(0, x * k - 60)) + 'px';
+      tip.style.top = Math.max(0, y * k - 38) + 'px';
+    }
+
+    function panelAnalisis() {
+      if (!opts.leerPdf || !window.HCDLab) {
+        return h('div', null, [
+          h('p', { class: 'panel-note', text: 'Para leer los valores de tus PDF de laboratorio y verlos en el tiempo, abrí este ZIP con el visor suelto, visor-hc.html. Este visor, dentro de la carpeta, no puede leer los PDF.' }),
+          h('a', { class: 'btn primary', href: 'https://github.com/sebasvaz/extractor-hcd/releases/latest', target: '_blank', rel: 'noopener noreferrer' },
+            [ico('external', 15), 'Descargar visor-hc.html'])
+        ]);
+      }
+      if (!lab) {
+        leerAnalisis();
+        var hechos = labLeyendo ? labLeyendo.hechos : 0, total = labLeyendo ? labLeyendo.total : 0;
+        return h('div', { class: 'covbar lab-progreso' }, [
+          h('div', null, [h('div', { class: 'covbar-val', text: 'Leyendo tus análisis' }),
+            h('div', { class: 'covbar-lab', text: 'Se hace una sola vez, en este navegador' })]),
+          h('div', { class: 'covbar-bar' }, [
+            h('div', { class: 'covbar-track' }, [h('div', { class: 'covbar-fill', style: 'width:' + (total ? Math.round(hechos / total * 100) : 0) + '%' })]),
+            h('div', { class: 'covbar-sub', text: 'Leyendo PDF ' + hechos + ' de ' + total + '…' })
+          ])
+        ]);
+      }
+      if (!lab.series.length) return vacio('No se encontraron valores de laboratorio en tus PDF.');
+      if (labSel) {
+        var sr = lab.series.filter(function (x) { return x.clave === labSel; })[0];
+        if (sr) {
+          return h('div', null, [
+            h('button', { class: 'linkbtn', type: 'button', text: '← Todos los análisis', onclick: function () { labSel = null; renderPanel(); } }),
+            h('div', { class: 'lab-detalle' }, [
+              h('div', { class: 'lab-head' }, [h('h3', { text: sr.nombre }), h('span', { class: 'tag', text: (sr.unidad || 'sin unidad') + ' · ' + plural(sr.puntos.length, 'valor', 'valores') })]),
+              h('div', { class: 'lab-chart-box' }, [grafico(sr, 640, 240, false), h('div', { class: 'lab-tip', role: 'status', hidden: true })]),
+              h('p', { class: 'nota-hint', text: 'La banda gris es el rango de referencia del informe más reciente que lo indica; los laboratorios pueden usar rangos distintos. «Alto» y «Bajo» se marcan solo con la referencia del propio informe. Tocá un punto para abrir su PDF.' }),
+              h('div', { class: 'tbl-wrap' }, [h('table', { class: 'tbl' }, [
+                h('thead', null, [h('tr', null, ['Fecha', 'Valor', 'Referencia', 'Estado', ''].map(function (x) { return h('th', { text: x }); }))]),
+                h('tbody', null, sr.puntos.slice().reverse().map(function (p) {
+                  return h('tr', null, [
+                    h('td', { class: 'mono', text: fechaCorta(p.fecha) }),
+                    h('td', { class: 'num', text: p.texto + ' ' + (p.unidad || sr.unidad || '') }),
+                    h('td', { text: p.ref ? p.ref.texto : '' }),
+                    h('td', null, [estadoValor(p)]),
+                    h('td', null, [h('button', { class: 'linkbtn', type: 'button', text: 'Ver PDF', onclick: function () { select(p.doc.id); } })])
+                  ]);
+                }))
+              ])])
+            ])
+          ]);
+        }
+        labSel = null;
+      }
+      var filtro = h('input', { type: 'search', class: 'lab-filtro', placeholder: 'Buscar un análisis (hemoglobina, colesterol…)', 'aria-label': 'Buscar un análisis' });
+      filtro.value = labFiltro;
+      var grid = h('div', { class: 'lab-grid' });
+      function pintar() {
+        grid.textContent = '';
+        var q = norm(labFiltro);
+        lab.series.filter(function (sr) { return !q || norm(sr.nombre).indexOf(q) !== -1; }).forEach(function (sr) {
+          var u = sr.ultimo;
+          grid.appendChild(h('button', { class: 'lab-card', type: 'button', onclick: function () { labSel = sr.clave; renderPanel(); } }, [
+            h('div', { class: 'lab-card-top' }, [h('b', { text: sr.nombre }), estadoValor(u)]),
+            h('div', { class: 'lab-card-val' }, [h('span', { class: 'lab-num', text: u.texto }), ' ' + (u.unidad || sr.unidad || '')]),
+            grafico(sr, 160, 34, true),
+            h('div', { class: 'lab-card-sub', text: fechaCorta(u.fecha) + ' · ' + plural(sr.puntos.length, 'valor', 'valores') })
+          ]));
+        });
+      }
+      filtro.addEventListener('input', function () { labFiltro = filtro.value; pintar(); });
+      pintar();
+      return h('div', null, [
+        h('div', { class: 'panel-tools' }, [filtro, h('span', { class: 'caption', text: plural(lab.leidos, 'PDF leído', 'PDF leídos') })]),
+        grid
+      ]);
+    }
+
+    // ---- Mi Resumen del Paciente (IPS) -------------------------------------
+
+    var ipsInput = h('input', { type: 'file', accept: '.json,application/json,application/fhir+json', class: 'visually-hidden', 'aria-hidden': 'true' });
+    ipsInput.addEventListener('change', function () {
+      var f = ipsInput.files && ipsInput.files[0];
+      ipsInput.value = '';
+      if (f) cargarIpsArchivo(f);
+    });
+
+    function abrirIps() { ipsInput.click(); }
+
+    /** Fechas del IPS, que pueden ser parciales: "2019" o "2019-03". */
+    function fechaIps(f) {
+      if (/^\d{4}-\d{2}-\d{2}/.test(f)) return fechaCorta(f);
+      var m = /^(\d{4})-(\d{2})$/.exec(f);
+      if (m) return m[2] + '/' + m[1];
+      return /^\d{4}$/.test(f) ? f : '';
+    }
+
+    function cargarIpsArchivo(f) {
+      var r = new FileReader();
+      r.onload = function () {
+        try { cargarIps(JSON.parse(String(r.result))); } catch (e) {
+          ipsError = e instanceof SyntaxError ? 'El archivo no es un JSON válido. Elegí el ips-fhir.json que descargaste de la Plataforma IPS.' : (e.message || String(e));
+          go({ view: 'ips' }, null);
+        }
+      };
+      r.onerror = function () { ipsError = 'No se pudo leer el archivo.'; go({ view: 'ips' }, null); };
+      r.readAsText(f);
+    }
+
+    function cargarIps(bundle) {
+      ipsError = '';
+      ips = window.HCDIps.leer(bundle);
+      go({ view: 'ips' }, null);
+    }
+
+    /** Palabras clave de un ítem del IPS para buscarlo en la historia (las dos primeras significativas). */
+    var VACIAS = { de: 1, del: 1, la: 1, las: 1, los: 1, el: 1, en: 1, con: 1, sin: 1, por: 1, para: 1, tipo: 1, mg: 1, comprimido: 1, comprimidos: 1 };
+    function claves(nombre) {
+      return norm(nombre).replace(/[^a-z0-9ñ ]+/g, ' ').split(/\s+/)
+        .filter(function (w) { return w.length >= 4 && !VACIAS[w] && !/^\d/.test(w); }).slice(0, 2).join(' ');
+    }
+
+    function panelIps() {
+      if (!ips) {
+        return h('div', null, [
+          ipsError ? h('div', { class: 'consulta-aviso', text: ipsError }) : null,
+          h('p', { class: 'panel-note', text: 'Si participaste en el estudio de la Plataforma IPS, podés descargar tu Resumen del Paciente en formato FHIR («Descargar FHIR», archivo ips-fhir.json) y abrirlo acá para verlo junto a tu historia.' }),
+          h('button', { class: 'btn primary', type: 'button', onclick: abrirIps }, [ico('ips', 15), 'Abrir mi IPS (ips-fhir.json)']),
+          h('p', { class: 'nota-hint', text: 'El archivo se lee en este navegador y no se guarda.' })
+        ]);
+      }
+      return h('div', null, [
+        h('div', { class: 'ips-meta' }, [
+          h('b', { text: ips.titulo }),
+          h('span', { text: [ips.fecha ? 'Generado el ' + fechaCorta(ips.fecha) : '', ips.autor].filter(Boolean).join(' · ') }),
+          h('button', { class: 'linkbtn', type: 'button', text: 'Abrir otro', onclick: abrirIps })
+        ]),
+        h('div', { class: 'ips-secs' }, ips.secciones.map(function (sec) {
+          return h('section', { class: 'vac-card' }, [
+            h('div', { class: 'vac-head ips-head' }, [h('h3', { text: sec.titulo }), h('span', { class: 'tag', text: String(sec.items.length) })]),
+            sec.items.length ? h('ul', { class: 'ips-items' }, sec.items.map(function (it) {
+              var q = claves(it.nombre);
+              var n = q ? docs.filter(function (d) { return coincide(d, G ? G.variantes(q) : [q.split(' ')]); }).length : 0;
+              return h('li', null, [
+                h('div', { class: 'ips-item-main' }, [
+                  conSiglas('span', 'item-label', it.nombre),
+                  it.fecha ? h('span', { class: 'mono', text: fechaIps(it.fecha) }) : null,
+                  it.estado ? tag(it.estado) : null
+                ]),
+                it.detalle.length ? h('div', { class: 'ips-item-det', text: it.detalle.join(' · ') }) : null,
+                n ? h('button', { class: 'linkbtn ips-link', type: 'button',
+                  text: 'En tu historia: ' + plural(n, 'documento', 'documentos'),
+                  onclick: function () { searchInput.value = q; go({ view: 'list', q: q, cat: '', prest: '', esp: '', year: '', fav: false, nuevos: false }); } })
+                  : h('span', { class: 'ips-none', text: 'No se encontró en el texto de tu historia' })
+              ]);
+            })) : h('div', { class: 'empty', text: 'Sin datos en esta sección.' })
+          ]);
+        }))
+      ]);
+    }
+
     function docsConsulta() {
       return consulta.map(function (id) { return byId[id]; }).filter(Boolean)
         .sort(function (a, b) { return (a.fecha || '').localeCompare(b.fecha || '') || a._i - b._i; });
@@ -1035,6 +1397,8 @@
       else if (state.view === 'medicamentos') { cuerpo = panelItems(medicamentos, 'Tus documentos no traen medicamentos indicados en un formato que el visor pueda leer.'); badge = medicamentos.length; }
       else if (state.view === 'siglas') { cuerpo = panelSiglas(); badge = plural(siglas.length, 'sigla', 'siglas'); }
       else if (state.view === 'consulta') { cuerpo = panelConsulta(); badge = plural(consulta.length, 'documento', 'documentos'); }
+      else if (state.view === 'analisis') { cuerpo = panelAnalisis(); badge = lab ? plural(lab.series.length, 'análisis', 'análisis') : '—'; }
+      else if (state.view === 'ips') { cuerpo = panelIps(); badge = ips ? plural(ips.secciones.length, 'sección', 'secciones') : '—'; }
       else { cuerpo = panelEquipo(); badge = plural(profesionales.length, 'profesional', 'profesionales'); }
       panelEl.appendChild(h('div', { class: 'resumen-inner' }, [
         h('button', { class: 'linkbtn panel-back', type: 'button', onclick: function () { go({ view: 'resumen' }, null); } }, ['← Resumen']),
@@ -1401,7 +1765,7 @@
     var resumenEl = resumen();
     panelEl = h('div', { class: 'panel' });
     var mpanelsEl = h('div', { class: 'mpanels', role: 'group', 'aria-label': 'Lo esencial' },
-      [['consulta', 'Consulta'], ['vacunas', 'Vacunas'], ['diagnosticos', 'Diagnósticos'], ['medicamentos', 'Medicamentos'], ['equipo', 'Médicos'], ['siglas', 'Siglas']].map(function (v) {
+      [['consulta', 'Consulta'], ['analisis', 'Análisis'], ['vacunas', 'Vacunas'], ['diagnosticos', 'Diagnósticos'], ['medicamentos', 'Medicamentos'], ['equipo', 'Médicos'], ['siglas', 'Siglas']].map(function (v) {
         return h('button', { class: 'chip chip-esencial', type: 'button', 'data-view': v[0],
           onclick: function () { go({ view: state.view === v[0] ? 'list' : v[0] }, null); } }, [ico(PANEL_META[v[0]].icono, 14), v[1]]);
       }));
@@ -1443,8 +1807,10 @@
     }
     window.addEventListener('popstate', onNav);
     window.addEventListener('hashchange', onNav);
+    root.appendChild(ipsInput);
 
-    document.addEventListener('keydown', function (ev) {
+    document.addEventListener('keydown', onKey);
+    function onKey(ev) {
       var tag = (ev.target && ev.target.tagName) || '';
       var typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
       if (ev.key === '/' && !typing) {
@@ -1456,7 +1822,19 @@
       if (typing || ev.altKey || ev.ctrlKey || ev.metaKey) return;
       if (ev.key === 'ArrowDown' || ev.key === 'j') { ev.preventDefault(); if (state.view === 'resumen') state.view = 'list'; move(1); }
       else if (ev.key === 'ArrowUp' || ev.key === 'k') { ev.preventDefault(); move(-1); }
-    });
+    }
+
+    // API para el cargador (visor suelto): desmontar al cambiar de persona y cargar un IPS.
+    return {
+      destroy: function () {
+        callar();
+        window.removeEventListener('popstate', onNav);
+        window.removeEventListener('hashchange', onNav);
+        document.removeEventListener('keydown', onKey);
+        root.textContent = '';
+      },
+      cargarIps: cargarIps
+    };
   }
 
   window.HCDViewer = { start: start, h: h, ico: ico, origin: origin };
