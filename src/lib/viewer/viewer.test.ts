@@ -11,9 +11,11 @@ import {
   buildStandaloneViewerHtml,
   buildViewerData,
   buildViewerHtml,
+  extractCdaHeader,
   htmlToPlainText,
   MAX_TEXT_CHARS,
   VIEWER_FILE,
+  VIEWER_VERSION,
 } from '.';
 
 function makeDoc(overrides: Partial<CapturedDocument> = {}): CapturedDocument {
@@ -141,9 +143,41 @@ describe('buildStandaloneViewerHtml', () => {
     expect(html).toContain('zip-input');
   });
 
-  it('declara una CSP sin red que solo admite frames blob:', () => {
+  it('declara una CSP sin red que admite frames blob: y data:', () => {
     expect(html).toContain("connect-src 'none'");
-    expect(html).toContain('frame-src blob:');
+    expect(html).toContain('frame-src blob: data:');
     expect(html).not.toMatch(/<(script|link)[^>]+(src|href)=["']https?:/);
+  });
+});
+
+describe('extractCdaHeader', () => {
+  const cda = `<html><head><title>Consulta no urgente</title></head><body><table>
+<tr><td><span class="td_label">Nombre</span></td><td>[PACIENTE]</td></tr>
+<tr><td><span class="td_label">Fecha de nacimiento</span></td><td>Enero 1, 1950</td></tr>
+<tr><td><span class="td_label">Prestador</span></td><td>Hospital &amp; Clínica</td></tr>
+<tr><td class="x"><span class="td_label">Profesional</span></td><td><b>ANA GÓMEZ</b></td></tr>
+<tr><td><span class="td_label">Fecha del evento</span></td><td>Marzo 23, 2026, 09:45:00</td></tr>
+</table></body></html>`;
+
+  it('lee título, prestador, profesional y fecha del evento', () => {
+    expect(extractCdaHeader(cda)).toEqual({
+      titulo: 'Consulta no urgente',
+      prestador: 'Hospital & Clínica',
+      profesional: 'ANA GÓMEZ',
+      fechaHora: 'Marzo 23, 2026, 09:45:00',
+    });
+  });
+
+  it('nunca lee los datos del paciente', () => {
+    expect(JSON.stringify(extractCdaHeader(cda))).not.toMatch(/PACIENTE|1950/);
+  });
+
+  it('va al índice del visor', () => {
+    const doc = makeDoc({ html: cda });
+    const data = buildViewerData(buildMetadata(args({ documents: [doc] })), [doc], { extensionVersion: '9.9.9' });
+    expect(data.documents[0]!.cda?.prestador).toBe('Hospital & Clínica');
+    expect(data.extensionVersion).toBe('9.9.9');
+    expect(data.viewerVersion).toBe(VIEWER_VERSION);
+    expect(data.exportId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

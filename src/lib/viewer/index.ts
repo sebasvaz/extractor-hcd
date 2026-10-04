@@ -25,9 +25,15 @@
 import type { CapturedDocument } from '../messaging/types';
 import type { HCDExportMetadata } from '../zip-builder';
 
+import pkg from '../../../package.json';
+
 import viewerCss from './viewer.css?raw';
 import viewerJs from './viewer-client.js?raw';
 import viewerLoaderJs from './viewer-loader.js?raw';
+import viewerNormalizeJs from './viewer-normalize.js?raw';
+
+/** Versión del visor (la de la extensión que lo generó). */
+export const VIEWER_VERSION: string = pkg.version;
 
 /** Nombre del visor dentro del ZIP (raíz). */
 export const VIEWER_FILE = 'visor.html';
@@ -35,9 +41,22 @@ export const VIEWER_FILE = 'visor.html';
 /** Tope de texto indexado por documento, para acotar el tamaño del visor. */
 export const MAX_TEXT_CHARS = 30_000;
 
+/** Datos del cabezal CDA que usa el visor. Nunca los del paciente. */
+export type CdaHeader = {
+  titulo?: string;
+  prestador?: string;
+  profesional?: string;
+  fechaHora?: string;
+};
+
 /** Shape del JSON embebido que consume `viewer-client.js`. */
 export type ViewerData = {
   exportedAt: string;
+  exportId?: string;
+  /** Versión de la extensión que generó el ZIP, si se conoce. */
+  extensionVersion?: string;
+  /** Versión del visor que muestra los datos. */
+  viewerVersion: string;
   anonymized: boolean;
   /** Nombre del titular; `null` si el paquete es anonimizado o no se detectó. */
   patientName: string | null;
@@ -54,19 +73,31 @@ export type ViewerData = {
     pdf?: string;
     /** Texto plano del documento para la búsqueda. Vacío para PDFs. */
     text: string;
+    /** Cabezal del documento; el cliente lo usa para normalizar y lo descarta. */
+    cda?: CdaHeader;
   }>;
   errors: HCDExportMetadata['errors'];
+};
+
+export type ViewerOptions = {
+  /** Versión de la extensión (chrome.runtime.getManifest().version). */
+  extensionVersion?: string;
 };
 
 export function buildViewerData(
   metadata: HCDExportMetadata,
   documents: CapturedDocument[],
+  opts: ViewerOptions = {},
 ): ViewerData {
   const htmlById = new Map(documents.map((d) => [d.id, d.html]));
   const anonymized = Boolean(metadata.anonymized);
   const name = metadata.patient.displayName.trim();
+  const extensionVersion = opts.extensionVersion ?? metadata.anonymization?.version;
   return {
     exportedAt: metadata.exportedAt,
+    exportId: metadata.exportId,
+    ...(extensionVersion ? { extensionVersion } : {}),
+    viewerVersion: VIEWER_VERSION,
     anonymized,
     patientName: anonymized || !name || name === 'paciente' ? null : name,
     totals: metadata.totals,
@@ -84,7 +115,10 @@ export function buildViewerData(
       if (d.attachmentFile !== undefined) {
         out.pdf = d.attachmentFile;
       } else {
-        out.text = htmlToPlainText(htmlById.get(d.id) ?? '').slice(0, MAX_TEXT_CHARS);
+        const html = htmlById.get(d.id) ?? '';
+        out.text = htmlToPlainText(html).slice(0, MAX_TEXT_CHARS);
+        const cda = extractCdaHeader(html);
+        if (Object.keys(cda).length) out.cda = cda;
       }
       return out;
     }),
@@ -93,13 +127,20 @@ export function buildViewerData(
 }
 
 /** Arma el `visor.html` completo. */
-export function buildViewerHtml(metadata: HCDExportMetadata, documents: CapturedDocument[]): string {
-  const data = buildViewerData(metadata, documents);
+export function buildViewerHtml(
+  metadata: HCDExportMetadata,
+  documents: CapturedDocument[],
+  opts: ViewerOptions = {},
+): string {
+  const data = buildViewerData(metadata, documents, opts);
   // `<` escapado: el JSON no puede cerrar el <script> que lo contiene.
   const json = JSON.stringify(data).replace(/</g, '\\u003c');
   return page({
     frameSrc: "'self' file:",
     body: `<script type="application/json" id="hcd-data">${json}</script>
+<script>
+${viewerNormalizeJs}
+</script>
 <script>
 ${viewerJs}
 </script>`,
@@ -118,9 +159,14 @@ export const STANDALONE_VIEWER_FILE = 'visor-hc.html';
  */
 export function buildStandaloneViewerHtml(jszipSource: string): string {
   return page({
-    frameSrc: 'blob:',
-    body: `<script>
+    // data: para imágenes y PDF que el propio documento embebe en un iframe.
+    frameSrc: 'blob: data:',
+    body: `<script>window.HCD_VIEWER_VERSION = ${JSON.stringify(VIEWER_VERSION)};</script>
+<script>
 ${jszipSource.replace(/<\/script/gi, '<\\/script')}
+</script>
+<script>
+${viewerNormalizeJs}
 </script>
 <script>
 ${viewerJs}
@@ -161,6 +207,39 @@ ${opts.body}
 </body>
 </html>
 `;
+}
+
+// ---------------------------------------------------------------------------
+// Cabezal CDA (sin DOM: corre en el service worker)
+// ---------------------------------------------------------------------------
+
+const CDA_LABELS: Record<string, keyof CdaHeader> = {
+  prestador: 'prestador',
+  profesional: 'profesional',
+  'fecha del evento': 'fechaHora',
+};
+
+/**
+ * Título, prestador, profesional y fecha del evento del cabezal del CDA de
+ * Mi HCD (`<td><span class="td_label">Prestador</span></td><td>…</td>`).
+ * A propósito no lee Nombre, Documento, Fecha de nacimiento ni Sexo.
+ */
+export function extractCdaHeader(html: string): CdaHeader {
+  const out: CdaHeader = {};
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+  if (title) {
+    const t = htmlToPlainText(title[1] ?? '');
+    if (t) out.titulo = t;
+  }
+  const row = /<td[^>]*>\s*(?:<span[^>]*\btd_label\b[^>]*>)?\s*([^<]{3,40}?)\s*(?:<\/span>)?\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = row.exec(html))) {
+    const key = CDA_LABELS[(m[1] ?? '').trim().toLowerCase()];
+    if (!key || out[key]) continue;
+    const value = htmlToPlainText(m[2] ?? '');
+    if (value) out[key] = value;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

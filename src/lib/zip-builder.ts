@@ -164,6 +164,8 @@ export type BuildZipArgs = {
    * el gate de revisión humana.
    */
   anonymizationManifest?: AnonymizationManifest;
+  /** Versión de la extensión; la muestra el visor como origen del ZIP. */
+  extensionVersion?: string;
   /** Opcional: sobreescribir el reloj (para tests). */
   now?: Date;
 };
@@ -189,7 +191,14 @@ export async function buildZip(args: BuildZipArgs): Promise<BuildZipResult> {
   zip.file('metadata.json', JSON.stringify(metadata, null, 2));
   zip.file('log.txt', serializeLog(args.log));
   zip.file('README.txt', readme(now, Boolean(args.anonymized)));
-  zip.file(VIEWER_FILE, buildViewerHtml(metadata, args.documents));
+  zip.file(
+    VIEWER_FILE,
+    buildViewerHtml(
+      metadata,
+      args.documents,
+      args.extensionVersion ? { extensionVersion: args.extensionVersion } : {},
+    ),
+  );
 
   // docs/
   const docsFolder = zip.folder('docs');
