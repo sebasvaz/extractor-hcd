@@ -122,7 +122,7 @@ documentos duplicados. Con datos normalizados no hay duplicados exactos en
 la muestra: la extensión ya descarta HTML idénticos por SHA-256 al
 descargar. El detector queda como red de seguridad.
 
-## Fase 8 — Más allá del ZIP (8a en este PR; 8b laboratorio pendiente)
+## Fase 8 — Más allá del ZIP ✅ (este PR)
 
 11. **Varias HC a la vez**: abrir los ZIP de la familia y alternar entre
     personas (cuidadores).
@@ -138,11 +138,15 @@ deja descargar y el visor muestra cada ítem con los documentos de la
 historia donde aparece (búsqueda con sinónimos). El Bundle no trae el
 documento de origen de cada ítem, por eso el vínculo es por búsqueda.
 
-8b (pendiente de decisión): laboratorio. 333 de 335 PDF reales tienen texto
-con líneas "analito | valor | unidad | referencia". Extraerlo en el navegador
-requiere pdf.js (~1,3 MB); en el visor embebido además hay que leer los PDF
-de `docs/`, que `file://` no permite, así que el texto tendría que salir de
-la extensión al descargar (fase 2).
+8b: "Mis análisis", solo en `visor-hc.html` (decisión: no tocar la
+extensión ni el portal). pdf.js 3.11 (Apache 2.0) va inline en el visor
+suelto (~1,4 MB), en el hilo principal y sin eval; `viewer-lab.js` arma las
+líneas por posición y extrae analito, valor, unidad y referencia. En la
+muestra real: 333 de 335 PDF con texto, 3418 resultados leídos y, en la HC
+con más PDF (76), 107 análisis graficados. Lo leído de los PDF también entra
+en la búsqueda. El visor dentro del ZIP muestra un aviso para abrir el ZIP
+con `visor-hc.html`. Pendiente para la fase 2: que la extensión guarde el
+texto de los PDF al descargar, para que el visor embebido también grafique.
 
 ## Cómo se valida cada fase
 

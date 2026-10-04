@@ -36,6 +36,7 @@ import viewerDossierJs from './viewer-dossier.js?raw';
 import viewerExtractJs from './viewer-extract.js?raw';
 import viewerGlossaryJs from './viewer-glossary.js?raw';
 import viewerIpsJs from './viewer-ips.js?raw';
+import viewerLabJs from './viewer-lab.js?raw';
 import viewerNormalizeJs from './viewer-normalize.js?raw';
 
 /** Versión del visor (la de la extensión que lo generó). */
@@ -162,14 +163,32 @@ export const STANDALONE_VIEWER_FILE = 'visor-hc.html';
  * de la computadora. Los documentos se muestran con `srcdoc` (HTML) o URLs
  * `blob:` (PDF), así que no hace falta descomprimir nada.
  */
-export function buildStandaloneViewerHtml(jszipSource: string): string {
+export function buildStandaloneViewerHtml(
+  jszipSource: string,
+  pdfjs?: { lib: string; worker: string },
+): string {
+  const inline = (src: string): string => src.replace(/<\/script/gi, '<\\/script');
+  // pdf.js para "Mis análisis": el worker se carga como script común y pdf.js lo
+  // usa en el hilo principal (sin Worker ni red); sin eval, que la CSP no permite.
+  const pdf = pdfjs
+    ? `<script>
+${inline(pdfjs.worker)}
+</script>
+<script>
+${inline(pdfjs.lib)}
+</script>
+<script>
+${viewerLabJs}
+</script>`
+    : '';
   return page({
     // data: para imágenes y PDF que el propio documento embebe en un iframe.
     frameSrc: 'blob: data:',
     body: `<script>window.HCD_VIEWER_VERSION = ${JSON.stringify(VIEWER_VERSION)};</script>
 <script>
-${jszipSource.replace(/<\/script/gi, '<\\/script')}
+${inline(jszipSource)}
 </script>
+${pdf}
 <script>
 ${viewerExtractJs}
 </script>

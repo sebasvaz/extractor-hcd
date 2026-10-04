@@ -47,6 +47,11 @@
       reopenLabel: 'Agregar otra historia',
       onReopen: pantallaCarga,
       personas: historias.map(function (x, j) { return { nombre: x.nombre, actual: j === actual }; }),
+      // pdf.js puede transferir el buffer: se le pasa una copia cada vez.
+      leerPdf: window.HCDLab && window.pdfjsLib ? function (d) {
+        var b = hx.pdfById[d.id];
+        return b ? window.HCDLab.lineas(b.slice()) : Promise.resolve([]);
+      } : null,
       onPersona: mostrar
     };
   }
@@ -98,6 +103,7 @@
 
   function readDocuments(zip, prefix, meta, onProgress) {
     var htmlById = {};
+    var pdfById = {};
     var docs = [];
     var done = 0;
     var total = meta.documents.length;
@@ -119,6 +125,7 @@
             var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
             urls.push(url);
             out.pdf = url;
+            pdfById[d.id] = bytes;
           });
         } else if (htmlEntry) {
           work = htmlEntry.async('string').then(function (html) {
@@ -157,7 +164,8 @@
           documents: docs.filter(function (d) { return !d._missing; }),
           errors: errors
         },
-        htmlById: htmlById
+        htmlById: htmlById,
+        pdfById: pdfById
       };
     });
   }
@@ -186,7 +194,8 @@
     openZip(file, function (done, total) {
       setStatus('busy', 'Leyendo documento ' + done + ' de ' + total + '…');
     }).then(function (res) {
-      historias.push({ nombre: nombreDe(file, res.data, historias.length + 1), original: JSON.stringify(res.data), htmlById: res.htmlById });
+      historias.push({ nombre: nombreDe(file, res.data, historias.length + 1), original: JSON.stringify(res.data),
+        htmlById: res.htmlById, pdfById: res.pdfById });
       mostrar(historias.length - 1);
     }).catch(function (err) {
       dropEl.removeAttribute('aria-busy');
