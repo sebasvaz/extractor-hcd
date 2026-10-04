@@ -144,7 +144,7 @@ Qué *no* hace (garantías negativas):
 
 - Google Chrome / Chromium reciente.
 - Cuenta Mi HCD propia (titular).
-- *(Solo si buildeás desde fuente)* Node.js 20 LTS (ver `.nvmrc`).
+- *(Solo si buildeás desde fuente)* Node.js 22 LTS (ver `.nvmrc`).
 
 ## Puesta en marcha
 
