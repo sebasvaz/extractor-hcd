@@ -19,22 +19,34 @@
 
   /** Repara texto UTF-8 que se decodificó como Latin-1 ("Ã­" → "í"). */
   function fixMojibake(s) {
+    // Algunos textos pasaron dos veces por el error ("Ã\u0083Â­" → "Ã­" → "í").
+    for (var i = 0; i < 3; i++) {
+      var r = fixMojibakeUnaVez(s);
+      if (r === s) break;
+      s = r;
+    }
+    return s || '';
+  }
+
+  function fixMojibakeUnaVez(s) {
     if (!s || !/[ÃÂ][\u0080-¿]/.test(s)) return s || '';
     var bytes = new Uint8Array(s.length);
+    var soloLatin1 = true;
     for (var i = 0; i < s.length; i++) {
       var c = s.charCodeAt(i);
-      if (c > 0xff) return s;
+      if (c > 0xff) { soloLatin1 = false; break; }
       bytes[i] = c;
     }
-    try {
-      return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    } catch (e) {
-      // Mezcla de texto bien y mal codificado: reparamos solo las secuencias.
-      return s.replace(/[Â-ß][\u0080-¿]/g, function (pair) {
-        var a = pair.charCodeAt(0), b = pair.charCodeAt(1);
-        return String.fromCharCode(((a & 0x1f) << 6) | (b & 0x3f));
-      });
+    if (soloLatin1) {
+      try {
+        return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      } catch (e) { /* mezcla de texto bien y mal codificado: sigue abajo */ }
     }
+    // Reparamos solo las secuencias de dos bytes rotas ("Ã­" → "í").
+    return s.replace(/[Â-ß][\u0080-¿]/g, function (pair) {
+      var a = pair.charCodeAt(0), b = pair.charCodeAt(1);
+      return String.fromCharCode(((a & 0x1f) << 6) | (b & 0x3f));
+    });
   }
 
   var LOWER_WORDS = { de: 1, del: 1, la: 1, las: 1, los: 1, y: 1, e: 1, en: 1, el: 1, por: 1, para: 1 };
@@ -204,7 +216,50 @@
     return docs;
   }
 
+  // Errores frecuentes de escritura en los servicios de Mi HCD.
+  var ESPECIALIDAD_FIX = { siquiatria: 'psiquiatria', sicologia: 'psicologia', traumatologia: 'traumatologia' };
+
+  function claveEspecialidad(e) {
+    var base = (e || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    // "Siquiatria (psiquiatria)": vale el nombre entre paréntesis.
+    var paren = /\(([^)]+)\)/.exec(base);
+    if (paren) base = paren[1];
+    base = base.replace(/\(.*?\)/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    return ESPECIALIDAD_FIX[base] || base;
+  }
+
+  function tildes(s) { return (s.match(/[áéíóúñü]/gi) || []).length; }
+
+  /**
+   * "Cardiologia", "Cardiología" y "Siquiatria (psiquiatria)" / "Psiquiatría"
+   * son la misma especialidad: se agrupan y se muestran con la forma más
+   * correcta (con tildes y sin paréntesis; a igual calidad, la más usada).
+   */
+  function unifyEspecialidades(docs) {
+    var grupos = {};
+    docs.forEach(function (d) {
+      if (!d.especialidad) return;
+      var k = claveEspecialidad(d.especialidad);
+      var g = grupos[k] || (grupos[k] = {});
+      g[d.especialidad] = (g[d.especialidad] || 0) + 1;
+    });
+    var elegida = {};
+    Object.keys(grupos).forEach(function (k) {
+      var formas = Object.keys(grupos[k]);
+      formas.sort(function (a, b) {
+        var pa = /\(/.test(a) ? 1 : 0, pb = /\(/.test(b) ? 1 : 0;
+        return pa - pb || tildes(b) - tildes(a) || grupos[k][b] - grupos[k][a] || a.localeCompare(b);
+      });
+      elegida[k] = formas[0];
+    });
+    docs.forEach(function (d) {
+      if (d.especialidad) d.especialidad = elegida[claveEspecialidad(d.especialidad)];
+    });
+    return docs;
+  }
+
   root.HCDNormalize = {
+    unifyEspecialidades: unifyEspecialidades,
     unifyPrestadores: unifyPrestadores,
     fixMojibake: fixMojibake,
     titleCase: titleCase,

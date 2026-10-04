@@ -65,7 +65,7 @@ el scraper.
   problema A les afecta.
 - Si afecta, reutilizar las mismas reglas de normalización del visor.
 
-## Fase 5 — Lo esencial de mi historia ✅ (este PR)
+## Fase 5 — Lo esencial de mi historia ✅ (#4, v1.6.0)
 
 1. **Mi carné de vacunas**: juntar las secciones "Historial de vacunas"
    (vacuna, fecha, dosis, vía, vacunatorio) en una tabla imprimible.
@@ -82,13 +82,22 @@ visor embebido y el suelto. En la muestra real: 469 dosis de vacunas con los
 cinco campos, 1010 diagnósticos y 753 medicamentos, sin rótulos de
 formulario colados.
 
-## Fase 6 — Entender lo que dice
+## Fase 6 — Entender lo que dice ✅ (este PR)
 
 4. **Siglas y términos explicados** al pasar el mouse (HTA, DM2…),
    reutilizando `clinical_abbreviations.py` de la plataforma.
 5. **Búsqueda con sinónimos** (hipertensión ↔ HTA) y tolerante a errores.
 6. **Accesibilidad**: tamaño de letra y lectura en voz alta del documento
    con `speechSynthesis` (funciona sin red).
+
+Implementación: `viewer-glossary.js` con 51 siglas del seed de la plataforma
+(sin las de 2 letras ni las que no son siglas), explicadas al pasar el mouse
+y en la vista "Siglas de tu historia"; búsqueda con sinónimos en los dos
+sentidos y "¿Quisiste decir…?" por distancia de edición sobre las palabras
+de los documentos; tamaño de letra guardado en el navegador; lectura en voz
+alta con las siglas expandidas. Además, especialidades escritas distinto
+unificadas y reparación de texto codificado dos veces (en la muestra real
+quedan 0 campos con acentos rotos).
 
 ## Fase 7 — Usar la historia
 

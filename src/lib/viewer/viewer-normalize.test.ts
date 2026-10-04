@@ -14,6 +14,7 @@ type Normalize = {
   normalizeDoc(d: Doc): Doc;
   normalizeError(e: Record<string, string>): Record<string, string>;
   unifyPrestadores(docs: Doc[]): Doc[];
+  unifyEspecialidades(docs: Doc[]): Doc[];
 };
 
 let N: Normalize;
@@ -29,6 +30,14 @@ describe('fixMojibake', () => {
     expect(N.fixMojibake('cardiologÃ­a')).toBe('cardiología');
     expect(N.fixMojibake('ginecotocologÃ­a y pediatrÃ­a')).toBe('ginecotocología y pediatría');
   });
+  it('repara aunque el texto tenga caracteres fuera de Latin-1', () => {
+    expect(N.fixMojibake('cardiologÃ\u00ada — control')).toBe('cardiología — control');
+  });
+
+  it('repara texto codificado dos veces', () => {
+    expect(N.fixMojibake('cardiologÃ\u0083Â\u00ada')).toBe('cardiología');
+  });
+
   it('no toca texto sano', () => {
     expect(N.fixMojibake('Ñandú, cardiología')).toBe('Ñandú, cardiología');
   });
@@ -111,5 +120,19 @@ describe('unifyPrestadores', () => {
     N.unifyPrestadores([a, b]);
     expect(b.prestador).toBe('Hospital Central');
     expect(b.prestadorNombre).toBe('Sociedad Hospital Central del Uruguay');
+  });
+});
+
+describe('unifyEspecialidades', () => {
+  it('agrupa variantes y usa la forma con tildes y sin paréntesis', () => {
+    const docs: Doc[] = [
+      { especialidad: 'Siquiatria (psiquiatria)' },
+      { especialidad: 'Psiquiatría' },
+      { especialidad: 'Cardiologia' },
+      { especialidad: 'Cardiología' },
+      { especialidad: 'Cardiologia' },
+    ];
+    N.unifyEspecialidades(docs);
+    expect(docs.map((d) => d.especialidad)).toEqual(['Psiquiatría', 'Psiquiatría', 'Cardiología', 'Cardiología', 'Cardiología']);
   });
 });

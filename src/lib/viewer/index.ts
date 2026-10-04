@@ -33,6 +33,7 @@ import viewerCss from './viewer.css?raw';
 import viewerJs from './viewer-client.js?raw';
 import viewerLoaderJs from './viewer-loader.js?raw';
 import viewerExtractJs from './viewer-extract.js?raw';
+import viewerGlossaryJs from './viewer-glossary.js?raw';
 import viewerNormalizeJs from './viewer-normalize.js?raw';
 
 /** Versión del visor (la de la extensión que lo generó). */
@@ -132,6 +133,9 @@ export function buildViewerHtml(
 ${viewerExtractJs}
 </script>
 <script>
+${viewerGlossaryJs}
+</script>
+<script>
 ${viewerNormalizeJs}
 </script>
 <script>
@@ -160,6 +164,9 @@ ${jszipSource.replace(/<\/script/gi, '<\\/script')}
 </script>
 <script>
 ${viewerExtractJs}
+</script>
+<script>
+${viewerGlossaryJs}
 </script>
 <script>
 ${viewerNormalizeJs}
