@@ -21,7 +21,7 @@ cambiar.
 | F | La categoría "Otros" no tiene ícono ni color. | 11 documentos |
 | G | El visor no dice de dónde viene ni enlaza a la Plataforma IPS. | todos |
 
-## Fase 1 — Visor: datos legibles y origen (este PR)
+## Fase 1 — Visor: datos legibles y origen ✅ (#3, v1.5.0)
 
 Arregla en el visor lo que se ve mal, también para ZIPs viejos, sin tocar
 el scraper.
@@ -65,7 +65,7 @@ el scraper.
   problema A les afecta.
 - Si afecta, reutilizar las mismas reglas de normalización del visor.
 
-## Fase 5 — Lo esencial de mi historia
+## Fase 5 — Lo esencial de mi historia ✅ (este PR)
 
 1. **Mi carné de vacunas**: juntar las secciones "Historial de vacunas"
    (vacuna, fecha, dosis, vía, vacunatorio) en una tabla imprimible.
@@ -74,6 +74,13 @@ el scraper.
    con link a cada documento.
 3. **Mis médicos y prestadores**: quién me atendió, cuántas veces, última
    consulta; mapa de calor de consultas por año y mes.
+
+Implementación: `visor.html` lleva el HTML de cada documento (escapado en el
+JSON del índice) y `viewer-extract.js` extrae en el navegador texto,
+cabezal, vacunas, diagnósticos y medicamentos, con el mismo código para el
+visor embebido y el suelto. En la muestra real: 469 dosis de vacunas con los
+cinco campos, 1010 diagnósticos y 753 medicamentos, sin rótulos de
+formulario colados.
 
 ## Fase 6 — Entender lo que dice
 

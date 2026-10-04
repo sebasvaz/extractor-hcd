@@ -8,18 +8,20 @@
  * Decisiones:
  *  - Un único HTML autocontenido: CSS y JS van inline (importados `?raw`),
  *    nada se carga desde la red. La CSP del propio visor bloquea `connect-src`.
- *  - El índice (metadata de cada documento + texto plano para la búsqueda)
- *    va embebido como JSON en un `<script type="application/json">`. Así el
- *    visor no necesita `fetch` (bloqueado en `file://` por los navegadores).
+ *  - El índice (metadata y HTML de cada documento) va embebido como JSON en
+ *    un `<script type="application/json">`, con `<` escapado. Así el visor no
+ *    necesita `fetch` (bloqueado en `file://` por los navegadores) y extrae en
+ *    el navegador el texto, el cabezal, vacunas, diagnósticos y medicamentos
+ *    con el mismo código que el visor suelto (viewer-extract.js).
  *  - Los documentos se muestran en un `<iframe sandbox>` apuntando al HTML
  *    original de `docs/`: el visor no los reescribe y los scripts que pudiera
  *    traer el HTML del portal no se ejecutan.
  *  - Con anonimización activada no se muestra `patient.displayName` (que en
  *    `metadata.json` queda en claro): el visor no debe reintroducir el nombre
  *    en un HTML que el pipeline de la plataforma escanea por PII residual.
- *  - El texto de búsqueda sale del HTML ya anonimizado (si corresponde) y va
- *    dentro de `<script>`, que el escaneo de PII de la plataforma ignora; el
- *    mismo texto ya está en los `docs/*.html` que sí se escanean.
+ *  - El HTML embebido es el mismo de `docs/` (ya anonimizado si corresponde) y
+ *    va dentro de `<script>` con `<` escapado: el escaneo de PII de la
+ *    plataforma ignora ese bloque, y el contenido ya se escanea en `docs/`.
  */
 
 import type { CapturedDocument } from '../messaging/types';
@@ -30,6 +32,7 @@ import pkg from '../../../package.json';
 import viewerCss from './viewer.css?raw';
 import viewerJs from './viewer-client.js?raw';
 import viewerLoaderJs from './viewer-loader.js?raw';
+import viewerExtractJs from './viewer-extract.js?raw';
 import viewerNormalizeJs from './viewer-normalize.js?raw';
 
 /** Versión del visor (la de la extensión que lo generó). */
@@ -37,17 +40,6 @@ export const VIEWER_VERSION: string = pkg.version;
 
 /** Nombre del visor dentro del ZIP (raíz). */
 export const VIEWER_FILE = 'visor.html';
-
-/** Tope de texto indexado por documento, para acotar el tamaño del visor. */
-export const MAX_TEXT_CHARS = 30_000;
-
-/** Datos del cabezal CDA que usa el visor. Nunca los del paciente. */
-export type CdaHeader = {
-  titulo?: string;
-  prestador?: string;
-  profesional?: string;
-  fechaHora?: string;
-};
 
 /** Shape del JSON embebido que consume `viewer-client.js`. */
 export type ViewerData = {
@@ -71,10 +63,12 @@ export type ViewerData = {
     descripcion?: string;
     /** Ruta del PDF adjunto (CDA nivel 1); el visor lo muestra en lugar del HTML. */
     pdf?: string;
-    /** Texto plano del documento para la búsqueda. Vacío para PDFs. */
-    text: string;
-    /** Cabezal del documento; el cliente lo usa para normalizar y lo descarta. */
-    cda?: CdaHeader;
+    /**
+     * HTML del documento. El visor extrae de acá, en el navegador, el texto
+     * de búsqueda, el cabezal, vacunas, diagnósticos y medicamentos
+     * (viewer-extract.js), y lo descarta. Ausente para PDFs.
+     */
+    html?: string;
   }>;
   errors: HCDExportMetadata['errors'];
 };
@@ -107,7 +101,6 @@ export function buildViewerData(
         file: d.file,
         categoria: d.categoria,
         fecha: d.fecha,
-        text: '',
       };
       if (d.prestador !== undefined) out.prestador = d.prestador;
       if (d.profesional !== undefined) out.profesional = d.profesional;
@@ -115,10 +108,7 @@ export function buildViewerData(
       if (d.attachmentFile !== undefined) {
         out.pdf = d.attachmentFile;
       } else {
-        const html = htmlById.get(d.id) ?? '';
-        out.text = htmlToPlainText(html).slice(0, MAX_TEXT_CHARS);
-        const cda = extractCdaHeader(html);
-        if (Object.keys(cda).length) out.cda = cda;
+        out.html = htmlById.get(d.id) ?? '';
       }
       return out;
     }),
@@ -138,6 +128,9 @@ export function buildViewerHtml(
   return page({
     frameSrc: "'self' file:",
     body: `<script type="application/json" id="hcd-data">${json}</script>
+<script>
+${viewerExtractJs}
+</script>
 <script>
 ${viewerNormalizeJs}
 </script>
@@ -164,6 +157,9 @@ export function buildStandaloneViewerHtml(jszipSource: string): string {
     body: `<script>window.HCD_VIEWER_VERSION = ${JSON.stringify(VIEWER_VERSION)};</script>
 <script>
 ${jszipSource.replace(/<\/script/gi, '<\\/script')}
+</script>
+<script>
+${viewerExtractJs}
 </script>
 <script>
 ${viewerNormalizeJs}
@@ -207,73 +203,4 @@ ${opts.body}
 </body>
 </html>
 `;
-}
-
-// ---------------------------------------------------------------------------
-// Cabezal CDA (sin DOM: corre en el service worker)
-// ---------------------------------------------------------------------------
-
-const CDA_LABELS: Record<string, keyof CdaHeader> = {
-  prestador: 'prestador',
-  profesional: 'profesional',
-  'fecha del evento': 'fechaHora',
-};
-
-/**
- * Título, prestador, profesional y fecha del evento del cabezal del CDA de
- * Mi HCD (`<td><span class="td_label">Prestador</span></td><td>…</td>`).
- * A propósito no lee Nombre, Documento, Fecha de nacimiento ni Sexo.
- */
-export function extractCdaHeader(html: string): CdaHeader {
-  const out: CdaHeader = {};
-  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
-  if (title) {
-    const t = htmlToPlainText(title[1] ?? '');
-    if (t) out.titulo = t;
-  }
-  const row = /<td[^>]*>\s*(?:<span[^>]*\btd_label\b[^>]*>)?\s*([^<]{3,40}?)\s*(?:<\/span>)?\s*<\/td>\s*<td[^>]*>([\s\S]*?)<\/td>/gi;
-  let m: RegExpExecArray | null;
-  while ((m = row.exec(html))) {
-    const key = CDA_LABELS[(m[1] ?? '').trim().toLowerCase()];
-    if (!key || out[key]) continue;
-    const value = htmlToPlainText(m[2] ?? '');
-    if (value) out[key] = value;
-  }
-  return out;
-}
-
-// ---------------------------------------------------------------------------
-// HTML → texto plano (sin DOM: corre en el service worker)
-// ---------------------------------------------------------------------------
-
-const NAMED_ENTITIES: Record<string, string> = {
-  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
-  aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú',
-  Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú',
-  ntilde: 'ñ', Ntilde: 'Ñ', uuml: 'ü', Uuml: 'Ü',
-  ordm: 'º', ordf: 'ª', deg: '°', middot: '·', laquo: '«', raquo: '»',
-  iquest: '¿', iexcl: '¡', ndash: '–', mdash: '—', hellip: '…', micro: 'µ',
-};
-
-/**
- * Texto visible de un HTML, con espacios colapsados. Quita `<head>`,
- * `<script>`, `<style>` y comentarios; los tags de bloque se convierten en
- * saltos para que las palabras de celdas contiguas no queden pegadas.
- */
-export function htmlToPlainText(html: string): string {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<head\b[\s\S]*?<\/head>/gi, ' ')
-    .replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<pre\b[^>]*\bid=["']?b64\b[\s\S]*?<\/pre>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, ent: string) => {
-      if (ent[0] === '#') {
-        const code = ent[1] === 'x' || ent[1] === 'X' ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10);
-        return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : ' ';
-      }
-      return NAMED_ENTITIES[ent] ?? whole;
-    })
-    .replace(/[\s ]+/g, ' ')
-    .trim();
 }
