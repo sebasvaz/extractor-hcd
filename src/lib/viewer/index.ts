@@ -32,6 +32,7 @@ import pkg from '../../../package.json';
 import viewerCss from './viewer.css?raw';
 import viewerJs from './viewer-client.js?raw';
 import viewerLoaderJs from './viewer-loader.js?raw';
+import viewerDossierJs from './viewer-dossier.js?raw';
 import viewerExtractJs from './viewer-extract.js?raw';
 import viewerGlossaryJs from './viewer-glossary.js?raw';
 import viewerNormalizeJs from './viewer-normalize.js?raw';
@@ -136,6 +137,9 @@ ${viewerExtractJs}
 ${viewerGlossaryJs}
 </script>
 <script>
+${viewerDossierJs}
+</script>
+<script>
 ${viewerNormalizeJs}
 </script>
 <script>
@@ -167,6 +171,9 @@ ${viewerExtractJs}
 </script>
 <script>
 ${viewerGlossaryJs}
+</script>
+<script>
+${viewerDossierJs}
 </script>
 <script>
 ${viewerNormalizeJs}

@@ -82,7 +82,7 @@ visor embebido y el suelto. En la muestra real: 469 dosis de vacunas con los
 cinco campos, 1010 diagnósticos y 753 medicamentos, sin rótulos de
 formulario colados.
 
-## Fase 6 — Entender lo que dice ✅ (este PR)
+## Fase 6 — Entender lo que dice ✅ (#5, v1.7.0)
 
 4. **Siglas y términos explicados** al pasar el mouse (HTA, DM2…),
    reutilizando `clinical_abbreviations.py` de la plataforma.
@@ -99,14 +99,28 @@ alta con las siglas expandidas. Además, especialidades escritas distinto
 unificadas y reparación de texto codificado dos veces (en la muestra real
 quedan 0 campos con acentos rotos).
 
-## Fase 7 — Usar la historia
+## Fase 7 — Usar la historia ✅ (este PR)
 
 7. **Llevar a la consulta**: marcar documentos e imprimir un único PDF.
 8. **Notas y favoritos** por documento, guardados solo en ese navegador.
 9. **Qué hay de nuevo**: al abrir un ZIP más reciente, resaltar los
    documentos nuevos.
-10. **Documentos repetidos**: agrupar los que comparten fecha y contenido
-    (68 en la muestra).
+10. **Documentos repetidos**: marcar los que comparten fecha, título y
+    texto, con opción de ocultarlos.
+
+Implementación: `viewer-dossier.js` arma "Llevar a la consulta" (portada con
+índice, resumen opcional y un documento por página, con el HTML limpio de
+scripts, iframes, objetos, manejadores `on*` y links `javascript:`; si algo
+quedara, falla cerrado). Favoritos, notas, selección para la consulta e
+historial de descargas se guardan en `localStorage` (solo en ese navegador).
+"Qué hay de nuevo" compara con la descarga anterior que comparte al menos un
+30% de los documentos.
+
+Corrección del diagnóstico: los "68 repetidos" eran pares con la misma
+descripción porque esta traía la fila cruda del portal (problema A), no
+documentos duplicados. Con datos normalizados no hay duplicados exactos en
+la muestra: la extensión ya descarta HTML idénticos por SHA-256 al
+descargar. El detector queda como red de seguridad.
 
 ## Fase 8 — Más allá del ZIP
 

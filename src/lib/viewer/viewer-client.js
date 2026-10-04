@@ -64,6 +64,11 @@
     diag: '<rect x="4.5" y="3.5" width="11" height="14" rx="1.5"/><path d="M8 3.5V5h4V3.5M7.5 9h5M7.5 12h5M7.5 15h3"/>',
     pill: '<rect x="2.8" y="7.2" width="14.4" height="5.6" rx="2.8" transform="rotate(-45 10 10)"/><path d="m7.9 7.9 4.2 4.2"/>',
     grid: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>',
+    star: '<path d="m10 3 2.1 4.4 4.9.6-3.6 3.4.9 4.8L10 13.9l-4.3 2.3.9-4.8L3 8l4.9-.6z"/>',
+    note: '<path d="M4 16.5V13l8.5-8.5 3.5 3.5L7.5 16.5z"/><path d="m11 6 3.5 3.5"/>',
+    plus: '<path d="M10 4v12M4 10h12"/>',
+    check: '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>',
+    sparkle: '<path d="M10 3v4M10 13v4M3 10h4M13 10h4M5.5 5.5l2 2M12.5 12.5l2 2M14.5 5.5l-2 2M7.5 12.5l-2 2"/>',
     speak: '<path d="M4 8h3l4-3.5v11L7 12H4z"/><path d="M14 7.5a3.5 3.5 0 0 1 0 5M16 5a7 7 0 0 1 0 10"/>',
     stop: '<rect x="5" y="5" width="10" height="10" rx="1.5"/>',
     abc: '<path d="M3 15 6 5l3 10M4 12h4M11 15V5h2.5a2.5 2.5 0 0 1 0 5H11h3a2.5 2.5 0 0 1 0 5z"/>',
@@ -262,6 +267,7 @@
         d.diagnosticos = r.diagnosticos.map(fix);
         d.medicamentos = r.medicamentos.map(fix);
       }
+      d._html = typeof d.html === 'string' ? d.html : '';
       delete d.html;
       d.text = d.text || '';
       if (N) N.normalizeDoc(d);
@@ -372,11 +378,76 @@
       ? parseFecha(conFecha[conFecha.length - 1].fecha).y + '–' + parseFecha(conFecha[0].fecha).y
       : '—';
     var errors = (data.errors || []).map(function (e) { return N ? N.normalizeError(e) : e; });
+
+    // ---- Seguimiento: favoritos, notas, consulta, nuevos y repetidos -------
+    // Se guardan solo en este navegador (localStorage), por id de documento.
+    // Si el navegador no deja guardar, todo funciona igual durante la sesión.
+    var store = {
+      get: function (k, def) {
+        try { var v = window.localStorage.getItem('hcd:' + k); return v ? JSON.parse(v) : def; } catch (e) { return def; }
+      },
+      set: function (k, v) {
+        try { window.localStorage.setItem('hcd:' + k, JSON.stringify(v)); } catch (e) { /* sin almacenamiento */ }
+      }
+    };
+    var favs = store.get('favs', {});
+    var notas = store.get('notas', {});
+    var consulta = store.get('consulta', []).filter(function (id) { return byId[id]; });
+    var conResumen = store.get('consulta-resumen', true);
+
+    // Qué hay de nuevo: contra la descarga anterior de la misma historia
+    // (la que comparte al menos un 30% de sus documentos con esta).
+    var nuevos = (function () {
+      var clave = data.exportId || data.exportedAt || '';
+      var hist = store.get('historial', []);
+      var actual = {};
+      docs.forEach(function (d) { actual[d.id] = 1; });
+      var prev = null;
+      var mejor = 0;
+      hist.forEach(function (x) {
+        if (x.exportId === clave || !x.ids || !x.ids.length || !(x.at < (data.exportedAt || ''))) return;
+        var comunes = x.ids.filter(function (id) { return actual[id]; }).length;
+        if (comunes / x.ids.length >= 0.3 && comunes > mejor) { mejor = comunes; prev = x; }
+      });
+      hist = hist.filter(function (x) { return x.exportId !== clave; });
+      hist.push({ exportId: clave, at: data.exportedAt || '', ids: Object.keys(actual) });
+      hist.sort(function (a, b) { return (a.at || '').localeCompare(b.at || ''); });
+      store.set('historial', hist.slice(-6));
+      if (!prev) return { desde: null, ids: {}, n: 0 };
+      var antes = {};
+      prev.ids.forEach(function (id) { antes[id] = 1; });
+      var ids = {};
+      var n = 0;
+      docs.forEach(function (d) { if (!antes[d.id]) { ids[d.id] = 1; n += 1; } });
+      return { desde: prev.at, ids: ids, n: n };
+    })();
+
+    // Repetidos: misma fecha, mismo título y mismo texto que otro documento.
+    var repetidos = (function () {
+      function hash(t) { var x = 5381; for (var i = 0; i < t.length; i++) x = ((x << 5) + x + t.charCodeAt(i)) | 0; return x; }
+      var primero = {};
+      var out = {};
+      docs.slice().sort(function (a, b) { return a._i - b._i; }).forEach(function (d) {
+        if (d.pdf || d.text.length < 50) return;
+        var k = d.fecha + '|' + norm(titulo(d)) + '|' + hash(d.text);
+        if (primero[k]) out[d.id] = primero[k]; else primero[k] = d;
+      });
+      return out;
+    })();
+    var nRepetidos = Object.keys(repetidos).length;
+
+    function guardarSeguimiento() {
+      store.set('favs', favs);
+      store.set('notas', notas);
+      store.set('consulta', consulta);
+      store.set('consulta-resumen', conResumen);
+    }
     var totals = data.totals || {};
 
     // ---- Estado ----------------------------------------------------------
 
-    var state = { view: 'resumen', q: '', cat: '', year: '', prest: '', esp: '', asc: false, sel: null, filters: false };
+    var state = { view: 'resumen', q: '', cat: '', year: '', prest: '', esp: '', asc: false, sel: null, filters: false,
+      fav: false, nuevos: false, ocultarRep: false };
     var visible = [];
 
     // Siglas que aparecen en la historia, con cuántos documentos las usan.
@@ -402,7 +473,7 @@
       return vocab;
     }
 
-    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1, siglas: 1 };
+    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1, siglas: 1, consulta: 1 };
     function enPanel() { return PANELES[state.view] && !state.sel; }
 
     /** Variantes de la búsqueda con sinónimos (HTA ↔ hipertensión arterial). */
@@ -415,7 +486,7 @@
       var vistos = {};
       return [].concat.apply([], variantes()).filter(function (t) { return !vistos[t] && (vistos[t] = true); });
     }
-    function filtered() { return Boolean(state.q || state.cat || state.year || state.prest || state.esp); }
+    function filtered() { return Boolean(state.q || state.cat || state.year || state.prest || state.esp || state.fav || state.nuevos || state.ocultarRep); }
 
     function filtrar() {
       var vs = variantes();
@@ -427,9 +498,13 @@
         }
         if (state.prest && d.prestador !== state.prest) return false;
         if (state.esp && d.especialidad !== state.esp) return false;
+        if (state.fav && !favs[d.id]) return false;
+        if (state.nuevos && !nuevos.ids[d.id]) return false;
+        if (state.ocultarRep && repetidos[d.id]) return false;
         if (!vs.length) return true;
         return vs.some(function (ts) {
-          for (var i = 0; i < ts.length; i++) if (d._hay.indexOf(ts[i]) === -1) return false;
+          var hay = notas[d.id] ? d._hay + ' \n ' + norm(notas[d.id]) : d._hay;
+          for (var i = 0; i < ts.length; i++) if (hay.indexOf(ts[i]) === -1) return false;
           return true;
         });
       });
@@ -461,6 +536,18 @@
       ]);
     }
 
+    /** Favorito, nuevo, en la consulta, repetido y nota, como marcas chicas en la lista. */
+    function marcas(d) {
+      var m = [
+        favs[d.id] ? h('span', { class: 'mk mk-fav', title: 'Favorito' }, [ico('star', 11), 'Favorito']) : null,
+        nuevos.ids[d.id] ? h('span', { class: 'mk mk-new' }, [ico('sparkle', 11), 'Nuevo']) : null,
+        consulta.indexOf(d.id) !== -1 ? h('span', { class: 'mk' }, [ico('check', 11), 'Para la consulta']) : null,
+        repetidos[d.id] ? h('span', { class: 'mk', title: 'Mismo contenido que otro documento del mismo día' }, ['Repetido']) : null,
+        notas[d.id] ? h('span', { class: 'mk', title: notas[d.id] }, [ico('note', 11), 'Nota']) : null
+      ].filter(Boolean);
+      return m.length ? h('div', { class: 'marcas' }, m) : null;
+    }
+
     function tlItem(d, ts, onclick) {
       var sub = [d.tipo && d.tipo !== titulo(d) ? d.tipo : null, d.prestador, d.profesional].filter(Boolean).join(' · ');
       var snip = ts ? snippet(d.text, ts) : null;
@@ -475,7 +562,8 @@
         ]),
         highlighted('div', 'tl-name', titulo(d), ts || [], d.pdf ? h('span', null, [' ', tag('PDF')]) : null),
         sub ? highlighted('div', 'tl-sub', sub, ts || []) : null,
-        snip ? highlighted('div', 'tl-snip', snip, ts) : null
+        snip ? highlighted('div', 'tl-snip', snip, ts) : null,
+        marcas(d)
       ]);
     }
 
@@ -483,12 +571,14 @@
 
     var navLinks = [];
     function navLink(label, icon, count, isCurrent, onclick) {
+      var dinamico = typeof count === 'function';
+      var nc = count !== null ? h('span', { class: 'nc', text: dinamico ? '' : String(count) }) : null;
       var b = h('button', { class: 'nav-link', type: 'button', onclick: onclick }, [
         h('span', { class: 'ni' }, [ico(icon, 16)]),
         label,
-        count !== null ? h('span', { class: 'nc', text: String(count) }) : null
+        nc
       ]);
-      navLinks.push({ el: b, current: isCurrent });
+      navLinks.push({ el: b, current: isCurrent, count: dinamico ? count : null, nc: nc });
       return b;
     }
 
@@ -517,6 +607,18 @@
             navLink('Todos los documentos', 'file', docs.length,
               function () { return state.view === 'list' && !state.cat && !state.prest && !state.esp; },
               function () { go({ view: 'list', cat: '', prest: '', esp: '' }); })
+          ]),
+          h('div', { class: 'nav-group' }, [
+            groupLabel('Mi seguimiento'),
+            navLink('Llevar a la consulta', 'print', function () { return consulta.length; },
+              function () { return state.view === 'consulta' && !state.sel; },
+              function () { go({ view: 'consulta' }, null); }),
+            navLink('Favoritos', 'star', function () { return Object.keys(favs).length; },
+              function () { return state.view === 'list' && state.fav; },
+              function () { go({ view: 'list', fav: true, nuevos: false, cat: '', prest: '', esp: '' }); }),
+            nuevos.desde ? navLink('Nuevos', 'sparkle', nuevos.n,
+              function () { return state.view === 'list' && state.nuevos; },
+              function () { go({ view: 'list', nuevos: true, fav: false, cat: '', prest: '', esp: '' }); }) : null
           ]),
           h('div', { class: 'nav-group' }, [
             groupLabel('Lo esencial'),
@@ -604,6 +706,13 @@
               : chip(String(cats.length), cats.length === 1 ? 'Categoría' : 'Categorías')
           ])
         ]),
+        nuevos.desde && nuevos.n ? h('div', { class: 'novedades' }, [
+          ico('sparkle', 18),
+          h('span', null, [h('b', { text: plural(nuevos.n, 'documento nuevo', 'documentos nuevos') }),
+            ' desde tu descarga del ' + fechaCorta(nuevos.desde.slice(0, 10)) + '.']),
+          h('button', { class: 'btn', type: 'button', text: 'Ver los nuevos',
+            onclick: function () { go({ view: 'list', nuevos: true, fav: false, cat: '', prest: '', esp: '' }); } })
+        ]) : null,
         h('div', { class: 'covbar' }, [
           h('div', null, [
             h('div', { class: 'covbar-val', text: docs.length + ' de ' + expected }),
@@ -688,7 +797,9 @@
       diagnosticos: { titulo: 'Mis diagnósticos', icono: 'diag', fg: '#1e4f9c', bg: '#e8f0fb' },
       medicamentos: { titulo: 'Mis medicamentos', icono: 'pill', fg: '#166534', bg: '#e6f5ee' },
       equipo: { titulo: 'Mis médicos y prestadores', icono: 'especialidad', fg: '#0F4675', bg: '#E8F1F9' },
-      siglas: { titulo: 'Siglas de tu historia', icono: 'abc', fg: '#3D2A94', bg: '#EEEAFB' }
+      siglas: { titulo: 'Siglas de tu historia', icono: 'abc', fg: '#3D2A94', bg: '#EEEAFB' },
+      consulta: { titulo: 'Llevar a la consulta', icono: 'print', fg: '#0F4675', bg: '#E8F1F9',
+        desc: 'Los documentos que elegiste, juntos en un solo documento para imprimir o guardar como PDF.' }
     };
 
     function docLink(d, texto) {
@@ -841,6 +952,78 @@
       ]);
     }
 
+    function docsConsulta() {
+      return consulta.map(function (id) { return byId[id]; }).filter(Boolean)
+        .sort(function (a, b) { return (a.fecha || '').localeCompare(b.fecha || '') || a._i - b._i; });
+    }
+
+    function imprimirConsulta() {
+      var sel = docsConsulta();
+      if (!sel.length || !window.HCDDossier) return;
+      var recientes = function (lista, max) {
+        return lista.slice().sort(function (a, b) { return b.ultima.localeCompare(a.ultima); }).slice(0, max)
+          .map(function (g) { return g.label + ' (' + fechaCorta(g.ultima) + ')'; });
+      };
+      var html = window.HCDDossier.armar({
+        docs: sel.map(function (d) {
+          return { fecha: d.fecha, hora: d.hora, titulo: titulo(d), categoria: d.categoria, prestador: d.prestador,
+            profesional: d.profesional, html: d._html, pdf: Boolean(d.pdf) };
+        }),
+        paciente: data.patientName || '',
+        descargada: (data.exportedAt || '').slice(0, 10),
+        resumen: conResumen ? {
+          diagnosticos: recientes(diagnosticos, 30),
+          medicamentos: recientes(medicamentos, 30),
+          vacunas: vacunas.map(function (g) { return g.vacuna + ' (última dosis ' + fechaCorta(g.ultima) + ')'; })
+        } : null
+      });
+      var w = window.open('', '_blank');
+      if (!w) {
+        panelEl.querySelector('.consulta-aviso').textContent = 'El navegador bloqueó la ventana nueva. Permití las ventanas emergentes para este archivo y probá de nuevo.';
+        return;
+      }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(function () { w.print(); }, 300);
+    }
+
+    function panelConsulta() {
+      var sel = docsConsulta();
+      if (!sel.length) {
+        return h('div', null, [
+          vacio('Todavía no elegiste documentos.'),
+          h('p', { class: 'panel-note', text: 'Abrí un documento y tocá «Agregar a la consulta». Después, desde acá, los imprimís juntos o los guardás como un solo PDF para llevarle a tu médico.' })
+        ]);
+      }
+      var check = h('input', { type: 'checkbox', id: 'consulta-resumen' });
+      check.checked = conResumen;
+      check.addEventListener('change', function () { conResumen = check.checked; guardarSeguimiento(); });
+      return h('div', null, [
+        h('p', { class: 'panel-note', text: 'Se arma un documento con una portada, los documentos elegidos (uno por página) y, si querés, un resumen. Para guardarlo como PDF, elegí «Guardar como PDF» en el diálogo de impresión.' }),
+        h('div', { class: 'consulta-tools' }, [
+          h('label', { class: 'check' }, [check, ' Incluir un resumen de diagnósticos, medicamentos y vacunas']),
+          h('button', { class: 'btn primary', type: 'button', onclick: imprimirConsulta }, [ico('print', 15), 'Imprimir o guardar como PDF'])
+        ]),
+        h('div', { class: 'consulta-aviso', role: 'status' }),
+        h('ul', { class: 'items' }, sel.map(function (d) {
+          return h('li', { class: 'consulta-item' }, [
+            h('button', { class: 'doclink', type: 'button', onclick: function () { select(d.id); } }, [
+              h('span', { class: 'mono', text: fechaCorta(d.fecha) }), ' ', titulo(d)
+            ]),
+            h('span', { class: 'item-meta' }, [d.prestador ? tag(d.prestador, 'brand') : null, d.pdf ? tag('PDF') : null]),
+            h('button', { class: 'linkbtn', type: 'button', text: 'Quitar', onclick: function () {
+              consulta = consulta.filter(function (id) { return id !== d.id; });
+              guardarSeguimiento();
+              renderPanel();
+              render();
+            } })
+          ]);
+        }))
+      ]);
+    }
+
     function renderPanel() {
       if (!panelEl) return;
       panelEl.textContent = '';
@@ -851,6 +1034,7 @@
       else if (state.view === 'diagnosticos') { cuerpo = panelItems(diagnosticos, 'Tus documentos no traen diagnósticos en un formato que el visor pueda leer.'); badge = diagnosticos.length; }
       else if (state.view === 'medicamentos') { cuerpo = panelItems(medicamentos, 'Tus documentos no traen medicamentos indicados en un formato que el visor pueda leer.'); badge = medicamentos.length; }
       else if (state.view === 'siglas') { cuerpo = panelSiglas(); badge = plural(siglas.length, 'sigla', 'siglas'); }
+      else if (state.view === 'consulta') { cuerpo = panelConsulta(); badge = plural(consulta.length, 'documento', 'documentos'); }
       else { cuerpo = panelEquipo(); badge = plural(profesionales.length, 'profesional', 'profesionales'); }
       panelEl.appendChild(h('div', { class: 'resumen-inner' }, [
         h('button', { class: 'linkbtn panel-back', type: 'button', onclick: function () { go({ view: 'resumen' }, null); } }, ['← Resumen']),
@@ -859,7 +1043,7 @@
         h('section', { class: 'sec' }, [
           h('div', { class: 'sec-head' }, [
             plainIcon(meta.icono, meta.fg, meta.bg),
-            h('div', null, [h('h2', { text: meta.titulo }), h('p', { text: AVISO })]),
+            h('div', null, [h('h2', { text: meta.titulo }), h('p', { text: meta.desc || AVISO })]),
             h('span', { class: 'sec-badge', text: String(badge) }),
             state.view === 'vacunas' && vacunas.length ? h('button', { class: 'btn no-print', type: 'button', onclick: function () { window.print(); } },
               [ico('print', 15), 'Imprimir carné']) : null
@@ -933,7 +1117,10 @@
         : plural(docs.length, 'documento', 'documentos') }));
       resultsHead.appendChild(h('span', { style: 'display:flex;gap:12px;align-items:center' }, [
         filtered() ? h('button', { class: 'linkbtn', type: 'button', text: 'Limpiar',
-          onclick: function () { searchInput.value = ''; go({ q: '', cat: '', year: '', prest: '', esp: '' }); } }) : null,
+          onclick: function () { searchInput.value = ''; go({ q: '', cat: '', year: '', prest: '', esp: '', fav: false, nuevos: false, ocultarRep: false }); } }) : null,
+        nRepetidos ? h('button', { class: 'linkbtn', type: 'button', 'aria-pressed': state.ocultarRep ? 'true' : 'false',
+          text: state.ocultarRep ? 'Mostrar repetidos' : 'Ocultar repetidos (' + nRepetidos + ')',
+          onclick: function () { go({ ocultarRep: !state.ocultarRep }); } }) : null,
         h('button', { class: 'linkbtn', type: 'button', text: state.asc ? 'Más antiguos primero' : 'Más recientes primero',
           onclick: function () { go({ asc: !state.asc }); } }),
         h('button', { class: 'mfilter', type: 'button', 'aria-expanded': state.filters ? 'true' : 'false',
@@ -1013,6 +1200,27 @@
             title: 'Anterior (↑)', disabled: idx <= 0, onclick: function () { move(-1); } }, [ico('up', 15)]),
           h('button', { class: 'btn icon', type: 'button', 'data-nav': 'next', 'aria-label': 'Documento siguiente',
             title: 'Siguiente (↓)', disabled: idx === -1 || idx >= visible.length - 1, onclick: function () { move(1); } }, [ico('down', 15)]),
+          h('button', { class: 'btn icon btn-fav', type: 'button', 'aria-pressed': favs[d.id] ? 'true' : 'false',
+            'aria-label': 'Marcar como favorito', title: 'Favorito', onclick: function (ev) {
+              if (favs[d.id]) delete favs[d.id]; else favs[d.id] = 1;
+              ev.currentTarget.setAttribute('aria-pressed', favs[d.id] ? 'true' : 'false');
+              guardarSeguimiento();
+              render();
+            } }, [ico('star', 15)]),
+          h('button', { class: 'btn', type: 'button', 'data-consulta': '', 'aria-pressed': consulta.indexOf(d.id) !== -1 ? 'true' : 'false',
+            onclick: function (ev) {
+              var i = consulta.indexOf(d.id);
+              if (i === -1) consulta.push(d.id); else consulta.splice(i, 1);
+              var en = consulta.indexOf(d.id) !== -1;
+              var b = ev.currentTarget;
+              b.setAttribute('aria-pressed', en ? 'true' : 'false');
+              b.textContent = '';
+              b.appendChild(ico(en ? 'check' : 'plus', 15));
+              b.appendChild(h('span', { class: 'long', text: en ? 'En la consulta' : 'Agregar a la consulta' }));
+              guardarSeguimiento();
+              render();
+            } }, [ico(consulta.indexOf(d.id) !== -1 ? 'check' : 'plus', 15),
+            h('span', { class: 'long', text: consulta.indexOf(d.id) !== -1 ? 'En la consulta' : 'Agregar a la consulta' })]),
           puedeLeer && d.text ? h('button', { class: 'btn', type: 'button', 'data-speak': '', onclick: function () { leer(d); } },
             [ico('speak', 15), h('span', { class: 'long', text: 'Escuchar' })]) : null,
           h('a', { class: 'btn primary', href: srcInfo.href, target: '_blank', rel: 'noopener noreferrer' }, [
@@ -1020,6 +1228,30 @@
             h('span', { class: 'long', text: 'Abrir en pestaña nueva' }),
             h('span', { class: 'short', text: d.pdf ? 'Abrir PDF' : 'Abrir documento' })
           ])
+        ])
+      ]));
+      var resumenNota = h('span', { text: notas[d.id] ? 'Mi nota' : 'Agregar una nota' });
+      var nota = h('textarea', { class: 'nota-input', rows: '2', placeholder: 'Por ejemplo: preguntarle al médico por este resultado', 'aria-label': 'Mi nota sobre este documento' });
+      nota.value = notas[d.id] || '';
+      var notaTimer;
+      nota.addEventListener('input', function () {
+        clearTimeout(notaTimer);
+        notaTimer = setTimeout(function () {
+          var v = nota.value.trim();
+          if (v) notas[d.id] = v; else delete notas[d.id];
+          resumenNota.textContent = v ? 'Mi nota' : 'Agregar una nota';
+          guardarSeguimiento();
+          renderList();
+        }, 400);
+      });
+      var original = repetidos[d.id];
+      docEl.appendChild(h('div', { class: 'doc-extra' }, [
+        original ? h('div', { class: 'aviso-rep' }, ['Este documento repite el contenido de otro del mismo día. ',
+          h('button', { class: 'linkbtn', type: 'button', text: 'Ver el original', onclick: function () { select(original.id); } })]) : null,
+        h('details', { class: 'nota', open: notas[d.id] ? true : null }, [
+          h('summary', null, [ico('note', 13), resumenNota]),
+          nota,
+          h('div', { class: 'nota-hint', text: 'Se guarda solo en este navegador. No modifica el documento.' })
         ])
       ]));
       docEl.appendChild(h('div', { class: 'frame-card' }, [
@@ -1102,7 +1334,10 @@
       });
       appEl.classList.toggle('reading', Boolean(state.sel));
       appEl.classList.toggle('show-filters', state.filters);
-      navLinks.forEach(function (n) { n.el.setAttribute('aria-current', n.current() ? 'true' : 'false'); });
+      navLinks.forEach(function (n) {
+        n.el.setAttribute('aria-current', n.current() ? 'true' : 'false');
+        if (n.count) { var c = n.count(); n.nc.textContent = c ? String(c) : ''; n.nc.hidden = !c; }
+      });
       Array.prototype.forEach.call(chipsEl.children, function (b) {
         b.setAttribute('aria-pressed', b.getAttribute('data-cat') === state.cat ? 'true' : 'false');
       });
@@ -1166,7 +1401,7 @@
     var resumenEl = resumen();
     panelEl = h('div', { class: 'panel' });
     var mpanelsEl = h('div', { class: 'mpanels', role: 'group', 'aria-label': 'Lo esencial' },
-      [['vacunas', 'Vacunas'], ['diagnosticos', 'Diagnósticos'], ['medicamentos', 'Medicamentos'], ['equipo', 'Médicos'], ['siglas', 'Siglas']].map(function (v) {
+      [['consulta', 'Consulta'], ['vacunas', 'Vacunas'], ['diagnosticos', 'Diagnósticos'], ['medicamentos', 'Medicamentos'], ['equipo', 'Médicos'], ['siglas', 'Siglas']].map(function (v) {
         return h('button', { class: 'chip chip-esencial', type: 'button', 'data-view': v[0],
           onclick: function () { go({ view: state.view === v[0] ? 'list' : v[0] }, null); } }, [ico(PANEL_META[v[0]].icono, 14), v[1]]);
       }));
