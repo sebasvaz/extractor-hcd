@@ -64,6 +64,9 @@
     diag: '<rect x="4.5" y="3.5" width="11" height="14" rx="1.5"/><path d="M8 3.5V5h4V3.5M7.5 9h5M7.5 12h5M7.5 15h3"/>',
     pill: '<rect x="2.8" y="7.2" width="14.4" height="5.6" rx="2.8" transform="rotate(-45 10 10)"/><path d="m7.9 7.9 4.2 4.2"/>',
     grid: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>',
+    speak: '<path d="M4 8h3l4-3.5v11L7 12H4z"/><path d="M14 7.5a3.5 3.5 0 0 1 0 5M16 5a7 7 0 0 1 0 10"/>',
+    stop: '<rect x="5" y="5" width="10" height="10" rx="1.5"/>',
+    abc: '<path d="M3 15 6 5l3 10M4 12h4M11 15V5h2.5a2.5 2.5 0 0 1 0 5H11h3a2.5 2.5 0 0 1 0 5z"/>',
     print: '<path d="M6 7V3h8v4"/><rect x="3" y="7" width="14" height="7" rx="1.5"/><path d="M6 12h8v5H6z"/>'
   };
 
@@ -141,15 +144,32 @@
     return merged;
   }
 
+  /** Agrega `s` a `el` con las siglas clínicas envueltas en <abbr> (explicadas al pasar el mouse). */
+  function appendConSiglas(el, s) {
+    var G = window.HCDGlossary;
+    if (!G) { el.appendChild(document.createTextNode(s)); return; }
+    G.partes(s).forEach(function (p) {
+      el.appendChild(p.sigla
+        ? h('abbr', { class: 'sigla', title: p.title, 'data-exp': p.title, text: p.sigla })
+        : document.createTextNode(p.text));
+    });
+  }
+
+  function conSiglas(tag, cls, s) {
+    var el = h(tag, { class: cls });
+    appendConSiglas(el, s || '');
+    return el;
+  }
+
   function highlighted(tag, cls, s, terms, extra) {
     var el = h(tag, { class: cls });
     var pos = 0;
     matchRanges(s, terms).forEach(function (r) {
-      if (r[0] > pos) el.appendChild(document.createTextNode(s.slice(pos, r[0])));
+      if (r[0] > pos) appendConSiglas(el, s.slice(pos, r[0]));
       el.appendChild(h('mark', { text: s.slice(r[0], r[1]) }));
       pos = r[1];
     });
-    if (pos < s.length) el.appendChild(document.createTextNode(s.slice(pos)));
+    if (pos < s.length) appendConSiglas(el, s.slice(pos));
     if (extra) el.appendChild(extra);
     return el;
   }
@@ -251,6 +271,8 @@
       return d;
     });
     if (N) N.unifyPrestadores(docs);
+    if (N && N.unifyEspecialidades) N.unifyEspecialidades(docs);
+    var G = window.HCDGlossary;
     var byId = {};
     docs.forEach(function (d) { byId[d.id] = d; });
 
@@ -357,14 +379,46 @@
     var state = { view: 'resumen', q: '', cat: '', year: '', prest: '', esp: '', asc: false, sel: null, filters: false };
     var visible = [];
 
-    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1 };
+    // Siglas que aparecen en la historia, con cuántos documentos las usan.
+    var siglas = (function () {
+      if (!G) return [];
+      var porDoc = {};
+      docs.forEach(function (d) {
+        var c = G.contar([d.titulo, d.tipo, d.text].concat(d.diagnosticos || [], d.medicamentos || []).join(' \n '));
+        Object.keys(c).forEach(function (k) { (porDoc[k] = porDoc[k] || []).push(d); });
+      });
+      return Object.keys(porDoc).map(function (k) { return { sigla: k, significado: G.SIGLAS[k], docs: porDoc[k] }; })
+        .sort(function (a, b) { return b.docs.length - a.docs.length || a.sigla.localeCompare(b.sigla); });
+    })();
+
+    // Vocabulario para "¿Quisiste decir…?" (se arma la primera vez que hace falta).
+    var vocab = null;
+    function vocabulario() {
+      if (vocab) return vocab;
+      vocab = {};
+      docs.forEach(function (d) {
+        (d._hay.match(/[a-z0-9ñ]{4,}/g) || []).forEach(function (w) { vocab[w] = (vocab[w] || 0) + 1; });
+      });
+      return vocab;
+    }
+
+    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1, siglas: 1 };
     function enPanel() { return PANELES[state.view] && !state.sel; }
 
-    function terms() { return norm(state.q).split(/\s+/).filter(Boolean); }
+    /** Variantes de la búsqueda con sinónimos (HTA ↔ hipertensión arterial). */
+    function variantes() {
+      if (!state.q.trim()) return [];
+      return G ? G.variantes(state.q) : [norm(state.q).split(/\s+/).filter(Boolean)];
+    }
+    /** Todos los términos buscados (para resaltar), incluidos los sinónimos. */
+    function terms() {
+      var vistos = {};
+      return [].concat.apply([], variantes()).filter(function (t) { return !vistos[t] && (vistos[t] = true); });
+    }
     function filtered() { return Boolean(state.q || state.cat || state.year || state.prest || state.esp); }
 
     function filtrar() {
-      var ts = terms();
+      var vs = variantes();
       visible = docs.filter(function (d) {
         if (state.cat && d.categoria !== state.cat) return false;
         if (state.year) {
@@ -373,8 +427,11 @@
         }
         if (state.prest && d.prestador !== state.prest) return false;
         if (state.esp && d.especialidad !== state.esp) return false;
-        for (var i = 0; i < ts.length; i++) if (d._hay.indexOf(ts[i]) === -1) return false;
-        return true;
+        if (!vs.length) return true;
+        return vs.some(function (ts) {
+          for (var i = 0; i < ts.length; i++) if (d._hay.indexOf(ts[i]) === -1) return false;
+          return true;
+        });
       });
       visible.sort(function (a, b) {
         var c = (a.fecha || '').localeCompare(b.fecha || '') || a._i - b._i;
@@ -472,6 +529,9 @@
             navLink('Medicamentos', 'pill', medicamentos.length || null,
               function () { return state.view === 'medicamentos' && !state.sel; },
               function () { go({ view: 'medicamentos' }, null); }),
+            navLink('Siglas', 'abc', siglas.length || null,
+              function () { return state.view === 'siglas' && !state.sel; },
+              function () { go({ view: 'siglas' }, null); }),
             navLink('Médicos y prestadores', 'especialidad', profesionales.length || null,
               function () { return state.view === 'equipo' && !state.sel; },
               function () { go({ view: 'equipo' }, null); })
@@ -493,6 +553,11 @@
           }))) : null
         ]),
         h('div', { class: 'nav-foot' }, [
+          h('div', { class: 'fontsize', role: 'group', 'aria-label': 'Tamaño de letra' }, [
+            h('span', { text: 'Tamaño de letra' }),
+            h('button', { type: 'button', 'aria-label': 'Achicar la letra', text: 'A−', onclick: function () { zoom(-1); } }),
+            h('button', { type: 'button', 'aria-label': 'Agrandar la letra', text: 'A+', onclick: function () { zoom(1); } })
+          ]),
           h('div', { class: 'offline' }, [ico('shield', 16), h('span', { text: opts.offlineText || 'Funciona sin internet. Nada sale de esta carpeta.' })]),
           opts.onReopen ? h('button', { class: 'nav-link nav-reopen', type: 'button', onclick: opts.onReopen },
             [h('span', { class: 'ni' }, [ico('file', 16)]), 'Abrir otro ZIP']) : null,
@@ -622,7 +687,8 @@
       vacunas: { titulo: 'Mi carné de vacunas', icono: 'vacunas', fg: '#065f46', bg: '#d1fae5' },
       diagnosticos: { titulo: 'Mis diagnósticos', icono: 'diag', fg: '#1e4f9c', bg: '#e8f0fb' },
       medicamentos: { titulo: 'Mis medicamentos', icono: 'pill', fg: '#166534', bg: '#e6f5ee' },
-      equipo: { titulo: 'Mis médicos y prestadores', icono: 'especialidad', fg: '#0F4675', bg: '#E8F1F9' }
+      equipo: { titulo: 'Mis médicos y prestadores', icono: 'especialidad', fg: '#0F4675', bg: '#E8F1F9' },
+      siglas: { titulo: 'Siglas de tu historia', icono: 'abc', fg: '#3D2A94', bg: '#EEEAFB' }
     };
 
     function docLink(d, texto) {
@@ -681,7 +747,7 @@
           var rango = fechaCorta(g.primera) + (g.ultima !== g.primera ? ' – ' + fechaCorta(g.ultima) : '');
           return h('li', null, [h('details', null, [
             h('summary', null, [
-              h('span', { class: 'item-label', text: g.label }),
+              conSiglas('span', 'item-label', g.label),
               h('span', { class: 'item-meta' }, [
                 h('span', { class: 'mono', text: rango }),
                 h('span', { class: 'tag', text: plural(g.docs.length, 'documento', 'documentos') })
@@ -757,6 +823,24 @@
       ]);
     }
 
+    function panelSiglas() {
+      if (!siglas.length) return vacio('No encontramos siglas conocidas en tus documentos.');
+      return h('div', null, [
+        h('p', { class: 'panel-note', text: 'Siglas médicas frecuentes que aparecen en tus documentos. En la lista y en los títulos, al pasar el mouse sobre una sigla subrayada se ve su significado.' }),
+        h('div', { class: 'tbl-wrap' }, [h('table', { class: 'tbl' }, [
+          h('thead', null, [h('tr', null, ['Sigla', 'Significado', 'Documentos'].map(function (t) { return h('th', { text: t }); }))]),
+          h('tbody', null, siglas.map(function (x) {
+            return h('tr', null, [
+              h('td', null, [h('button', { class: 'linkbtn sigla-btn', type: 'button', text: x.sigla,
+                onclick: function () { searchInput.value = x.sigla; go({ view: 'list', q: x.sigla, cat: '', prest: '', esp: '', year: '' }); } })]),
+              h('td', { text: x.significado }),
+              h('td', { class: 'num', text: String(x.docs.length) })
+            ]);
+          }))
+        ])])
+      ]);
+    }
+
     function renderPanel() {
       if (!panelEl) return;
       panelEl.textContent = '';
@@ -766,6 +850,7 @@
       if (state.view === 'vacunas') { cuerpo = panelVacunas(); badge = plural(nDosis, 'dosis', 'dosis'); }
       else if (state.view === 'diagnosticos') { cuerpo = panelItems(diagnosticos, 'Tus documentos no traen diagnósticos en un formato que el visor pueda leer.'); badge = diagnosticos.length; }
       else if (state.view === 'medicamentos') { cuerpo = panelItems(medicamentos, 'Tus documentos no traen medicamentos indicados en un formato que el visor pueda leer.'); badge = medicamentos.length; }
+      else if (state.view === 'siglas') { cuerpo = panelSiglas(); badge = plural(siglas.length, 'sigla', 'siglas'); }
       else { cuerpo = panelEquipo(); badge = plural(profesionales.length, 'profesional', 'profesionales'); }
       panelEl.appendChild(h('div', { class: 'resumen-inner' }, [
         h('button', { class: 'linkbtn panel-back', type: 'button', onclick: function () { go({ view: 'resumen' }, null); } }, ['← Resumen']),
@@ -856,8 +941,17 @@
       ]));
 
       listEl.textContent = '';
+      var vs = variantes();
+      if (vs.length > 1 && visible.length) {
+        listEl.appendChild(h('div', { class: 'synonyms', text: 'También se buscó: ' + vs.slice(1).map(function (v) { return G ? G.mostrar(v) : v.join(' '); }).join(', ') }));
+      }
       if (!visible.length) {
-        listEl.appendChild(h('div', { class: 'empty', text: 'No hay documentos que coincidan con la búsqueda y los filtros.' }));
+        var sug = state.q.trim() && G ? G.sugerir(norm(state.q).split(/\s+/).filter(Boolean), vocabulario()) : null;
+        listEl.appendChild(h('div', { class: 'empty' }, [
+          h('div', { text: 'No hay documentos que coincidan con la búsqueda y los filtros.' }),
+          sug ? h('button', { class: 'linkbtn suggest', type: 'button', onclick: function () { searchInput.value = sug; go({ q: sug }); } },
+            ['¿Quisiste decir «' + sug + '»?']) : null
+        ]));
         return;
       }
       var frag = document.createDocumentFragment();
@@ -887,6 +981,7 @@
         return;
       }
       docShown = d;
+      callar();
       docEl.textContent = '';
       if (!d) {
         docEl.appendChild(h('div', { class: 'doc-empty' }, [h('div', null, [
@@ -905,7 +1000,7 @@
         secIcon(d.categoria),
         h('div', { class: 'doc-title' }, [h('div', null, [
           h('div', { class: 'doc-kicker', text: fechaHora(d) + ' · ' + d.categoria }),
-          h('h1', { text: titulo(d) }),
+          conSiglas('h1', '', titulo(d)),
           h('div', { class: 'doc-tags' }, [
             d.tipo && d.tipo !== titulo(d) ? tag(d.tipo) : null,
             d.prestador ? tag(d.prestador, 'brand', 'building', d.prestadorNombre) : null,
@@ -918,6 +1013,8 @@
             title: 'Anterior (↑)', disabled: idx <= 0, onclick: function () { move(-1); } }, [ico('up', 15)]),
           h('button', { class: 'btn icon', type: 'button', 'data-nav': 'next', 'aria-label': 'Documento siguiente',
             title: 'Siguiente (↓)', disabled: idx === -1 || idx >= visible.length - 1, onclick: function () { move(1); } }, [ico('down', 15)]),
+          puedeLeer && d.text ? h('button', { class: 'btn', type: 'button', 'data-speak': '', onclick: function () { leer(d); } },
+            [ico('speak', 15), h('span', { class: 'long', text: 'Escuchar' })]) : null,
           h('a', { class: 'btn primary', href: srcInfo.href, target: '_blank', rel: 'noopener noreferrer' }, [
             ico('external', 15),
             h('span', { class: 'long', text: 'Abrir en pestaña nueva' }),
@@ -946,6 +1043,52 @@
         h('div', { class: 'mtop-title', text: d ? titulo(d) : 'Mi historia clínica' }),
         h('div', { class: 'mtop-sub', text: d ? fechaHora(d) + ' · ' + d.categoria : docs.length + ' docs · ' + periodo })
       ]));
+      mtopEl.appendChild(h('button', { class: 'mback', type: 'button', 'aria-label': 'Cambiar el tamaño de letra', text: 'Aa',
+        onclick: function () { zoom(zoomIdx >= ZOOMS.length - 1 ? -zoomIdx : 1); } }));
+    }
+
+    // ---- Accesibilidad: tamaño de letra y lectura en voz alta -------------
+
+    var ZOOMS = [1, 1.15, 1.3, 1.5];
+    var zoomIdx = 0;
+    try { zoomIdx = Math.max(0, Math.min(ZOOMS.length - 1, +localStorage.getItem('hcd-zoom') || 0)); } catch (e) { zoomIdx = 0; }
+    function aplicarZoom() { if (appEl) appEl.style.zoom = String(ZOOMS[zoomIdx]); }
+    function zoom(delta) {
+      zoomIdx = Math.max(0, Math.min(ZOOMS.length - 1, zoomIdx + delta));
+      try { localStorage.setItem('hcd-zoom', String(zoomIdx)); } catch (e) { /* sin almacenamiento: vale solo por ahora */ }
+      aplicarZoom();
+    }
+
+    // La voz es la del sistema operativo: funciona sin internet.
+    var puedeLeer = typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance !== 'undefined';
+    var leyendo = false;
+    function botonLeer(activo) {
+      var b = docEl.querySelector('[data-speak]');
+      if (!b) return;
+      b.textContent = '';
+      b.appendChild(ico(activo ? 'stop' : 'speak', 15));
+      b.appendChild(h('span', { class: 'long', text: activo ? 'Detener' : 'Escuchar' }));
+      b.setAttribute('aria-pressed', activo ? 'true' : 'false');
+    }
+    function callar() {
+      if (puedeLeer && leyendo) window.speechSynthesis.cancel();
+      leyendo = false;
+    }
+    function leer(d) {
+      if (!puedeLeer) return;
+      if (leyendo) { callar(); botonLeer(false); return; }
+      var texto = titulo(d) + '. ' + fechaCorta(d.fecha) + '. ' + d.text;
+      // Las siglas se leen con su significado.
+      if (G) texto = G.partes(texto).map(function (p) { return p.sigla ? p.title : p.text; }).join('');
+      var u = new SpeechSynthesisUtterance(texto);
+      u.lang = 'es-UY';
+      var voces = window.speechSynthesis.getVoices() || [];
+      var voz = voces.filter(function (v) { return /^es[-_]UY/i.test(v.lang); })[0] || voces.filter(function (v) { return /^es/i.test(v.lang); })[0];
+      if (voz) u.voice = voz;
+      u.onend = u.onerror = function () { leyendo = false; botonLeer(false); };
+      leyendo = true;
+      botonLeer(true);
+      window.speechSynthesis.speak(u);
     }
 
     // ---- Render y navegación --------------------------------------------
@@ -1023,7 +1166,7 @@
     var resumenEl = resumen();
     panelEl = h('div', { class: 'panel' });
     var mpanelsEl = h('div', { class: 'mpanels', role: 'group', 'aria-label': 'Lo esencial' },
-      [['vacunas', 'Vacunas'], ['diagnosticos', 'Diagnósticos'], ['medicamentos', 'Medicamentos'], ['equipo', 'Médicos']].map(function (v) {
+      [['vacunas', 'Vacunas'], ['diagnosticos', 'Diagnósticos'], ['medicamentos', 'Medicamentos'], ['equipo', 'Médicos'], ['siglas', 'Siglas']].map(function (v) {
         return h('button', { class: 'chip chip-esencial', type: 'button', 'data-view': v[0],
           onclick: function () { go({ view: state.view === v[0] ? 'list' : v[0] }, null); } }, [ico(PANEL_META[v[0]].icono, 14), v[1]]);
       }));
@@ -1051,6 +1194,7 @@
       ])
     ]);
     root.appendChild(appEl);
+    aplicarZoom();
 
     var inicial = fromHash();
     if (inicial && byId[inicial]) { state.sel = inicial; state.view = 'list'; }
