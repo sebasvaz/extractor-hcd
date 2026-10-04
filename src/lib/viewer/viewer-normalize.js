@@ -129,9 +129,12 @@
     var fila = parseFila(desc);
     if (fila || OID.test(desc.trim())) desc = '';
     var prof = parseProfesional(d.profesional);
+    // ZIP v1.9+: la descripción ya viene sola ("servicio de urología").
+    var serv = /^servicio\s+de\s+(.+)$/i.exec(desc.trim());
+    if (serv && !prof.especialidad) { prof.especialidad = serv[1].replace(/[\s.]+$/, ''); desc = ''; }
 
     var prestador = (d.prestador || '').trim();
-    var prestadorNombre = '';
+    var prestadorNombre = fixMojibake(d.prestadorNombre || '').trim();
     if (fila) {
       if (!prestador) prestador = fila.prestador;
       prestadorNombre = fila.prestadorNombre;

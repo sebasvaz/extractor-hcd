@@ -63,10 +63,13 @@ export type ViewerData = {
     categoria: string;
     fecha: string;
     prestador?: string;
+    prestadorNombre?: string;
     profesional?: string;
     descripcion?: string;
     /** Ruta del PDF adjunto (CDA nivel 1); el visor lo muestra en lugar del HTML. */
     pdf?: string;
+    /** Resultados del PDF leídos al descargar: "Mis análisis" sin leer el PDF. */
+    analitos?: HCDExportMetadata['documents'][number]['analitos'];
     /**
      * HTML del documento. El visor extrae de acá, en el navegador, el texto
      * de búsqueda, el cabezal, vacunas, diagnósticos y medicamentos
@@ -90,7 +93,7 @@ export function buildViewerData(
   const htmlById = new Map(documents.map((d) => [d.id, d.html]));
   const anonymized = Boolean(metadata.anonymized);
   const name = metadata.patient.displayName.trim();
-  const extensionVersion = opts.extensionVersion ?? metadata.anonymization?.version;
+  const extensionVersion = opts.extensionVersion ?? metadata.producer?.version ?? metadata.anonymization?.version;
   return {
     exportedAt: metadata.exportedAt,
     exportId: metadata.exportId,
@@ -107,10 +110,12 @@ export function buildViewerData(
         fecha: d.fecha,
       };
       if (d.prestador !== undefined) out.prestador = d.prestador;
+      if (d.prestadorNombre !== undefined) out.prestadorNombre = d.prestadorNombre;
       if (d.profesional !== undefined) out.profesional = d.profesional;
       if (d.descripcion !== undefined) out.descripcion = d.descripcion;
       if (d.attachmentFile !== undefined) {
         out.pdf = d.attachmentFile;
+        if (d.analitos?.length) out.analitos = d.analitos;
       } else {
         out.html = htmlById.get(d.id) ?? '';
       }

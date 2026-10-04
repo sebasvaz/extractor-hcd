@@ -23,7 +23,7 @@
     var pdfjs = root.pdfjsLib;
     if (!pdfjs) return Promise.reject(new Error('Este visor no puede leer PDF.'));
     // Sin eval (la CSP no lo permite) y sin fuentes: solo necesitamos el texto.
-    return pdfjs.getDocument({ data: bytes, isEvalSupported: false, disableFontFace: true, useSystemFonts: false }).promise
+    return pdfjs.getDocument({ data: bytes, verbosity: 0, isEvalSupported: false, disableFontFace: true, useSystemFonts: false }).promise
       .then(function (pdf) {
         var paginas = [];
         for (var i = 1; i <= pdf.numPages; i++) paginas.push(i);

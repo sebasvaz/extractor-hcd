@@ -1008,17 +1008,29 @@
       return SINONIMOS_LAB[k] || k;
     }
 
+    /** Hay análisis si el ZIP los trae (v1.9+) o si el visor puede leer los PDF (visor-hc.html). */
+    function hayAnalisis() {
+      return docs.some(function (d) { return d.analitos && d.analitos.length; }) || Boolean(opts.leerPdf && window.HCDLab);
+    }
+
+    /** Analitos de un documento: los guardados al descargar o, si no, leídos del PDF. */
+    function analitosDe(d) {
+      if (d.analitos && d.analitos.length) return Promise.resolve({ analitos: d.analitos, lineas: null });
+      if (!opts.leerPdf || !window.HCDLab) return Promise.resolve({ analitos: [], lineas: null });
+      return opts.leerPdf(d).then(function (ls) { return { analitos: window.HCDLab.analitos(ls), lineas: ls }; });
+    }
+
     function leerAnalisis() {
-      if (lab || labLeyendo || !opts.leerPdf || !window.HCDLab) return;
+      if (lab || labLeyendo || !hayAnalisis()) return;
       var lista = docs.filter(function (d) { return d.pdf; }).sort(function (a, b) { return (a.fecha || '').localeCompare(b.fecha || ''); });
       var series = {};
       labLeyendo = { hechos: 0, total: lista.length };
       lista.reduce(function (p, d) {
         return p.then(function () {
-          return opts.leerPdf(d).then(function (ls) {
-            // Lo leído del PDF también se puede buscar.
-            d._hay += ' \n ' + norm(ls.join(' '));
-            var a = window.HCDLab.analitos(ls);
+          return analitosDe(d).then(function (r) {
+            // Lo leído del PDF también se puede buscar (solo si se leyó acá: el ZIP no trae el texto).
+            if (r.lineas) d._hay += ' \n ' + norm(r.lineas.join(' '));
+            var a = r.analitos;
             var conRef = a.filter(function (x) { return x.ref; }).length;
             // Solo informes de laboratorio (o PDF con resultados con referencia): no medidas sueltas de otros informes.
             if (d.categoria !== 'Laboratorio' && conRef < 2) return;
@@ -1161,9 +1173,9 @@
     }
 
     function panelAnalisis() {
-      if (!opts.leerPdf || !window.HCDLab) {
+      if (!hayAnalisis()) {
         return h('div', null, [
-          h('p', { class: 'panel-note', text: 'Para leer los valores de tus PDF de laboratorio y verlos en el tiempo, abrí este ZIP con el visor suelto, visor-hc.html. Este visor, dentro de la carpeta, no puede leer los PDF.' }),
+          h('p', { class: 'panel-note', text: 'Este ZIP es de una versión anterior de la extensión y no trae los valores de laboratorio. Para verlos en el tiempo, abrí el ZIP con el visor suelto, visor-hc.html, que lee los PDF.' }),
           h('a', { class: 'btn primary', href: 'https://github.com/sebasvaz/extractor-hcd/releases/latest', target: '_blank', rel: 'noopener noreferrer' },
             [ico('external', 15), 'Descargar visor-hc.html'])
         ]);

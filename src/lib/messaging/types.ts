@@ -30,11 +30,23 @@ export type EventMetadata = {
   categoria: string; // e.g. "Vacunas", "Policlínica"…
   fecha: string; // ISO yyyy-mm-dd
   prestador?: string;
+  /** Nombre completo del prestador (columna "Nombre completo del prestador" del timeline). */
+  prestadorNombre?: string;
   profesional?: string;
   descripcion?: string;
+  /**
+   * Interno (no va al ZIP): la descripción con la que se arma el id, igual que
+   * hasta v1.8.0, para que los ids no cambien entre versiones de la extensión.
+   */
+  idDescripcion?: string;
 };
 
 export type CapturedDocument = EventMetadata & {
+  /**
+   * Resultados leídos del PDF adjunto (solo informes con valores): nombre,
+   * valor, unidad y referencia. Nunca el texto completo del PDF.
+   */
+  analitos?: import('../pdf-analitos').Analito[];
   visualizarUrl: string; // URL contenedora al capturar (cambia por sesión)
   captureUrl: string; // src del iframe CONTENIDOHTML al capturar
   capturedAt: string; // ISO-8601

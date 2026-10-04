@@ -36,6 +36,7 @@ import { eventFileName } from '@lib/slug';
 import { URLS } from '@lib/selectors';
 import { createAnonymizer, type Anonymizer } from '@lib/anonymization';
 import { redactPdfHeader } from '@lib/pdf-redact';
+import { analitosDePdf } from '@lib/pdf-analitos';
 
 // ---------------------------------------------------------------------------
 // Estado global (vive mientras el SW esté activo)
@@ -362,7 +363,8 @@ async function scrapeAll(tabId: number): Promise<void> {
       const finalIds = eventFileName({
         fechaIso: provisionalMeta.fecha,
         categoria: provisionalMeta.categoria,
-        descripcion: provisionalMeta.descripcion ?? 'sin-descripcion',
+        // Misma descripción que hasta v1.8.0: los ids no cambian entre versiones.
+        descripcion: provisionalMeta.idDescripcion ?? provisionalMeta.descripcion ?? 'sin-descripcion',
         seen: run.usedSlugs,
       });
       const metaForContent: EventMetadata = { ...provisionalMeta, id: finalIds.id };
@@ -413,6 +415,16 @@ async function scrapeAll(tabId: number): Promise<void> {
                   reason: pdfResult.reason,
                 });
               }
+            }
+          }
+
+          // Resultados del PDF de laboratorio (solo analitos, nunca el texto):
+          // permiten que el visor dentro del ZIP grafique "Mis análisis".
+          if (doc.attachmentBase64 && doc.attachmentMime === 'application/pdf') {
+            const analitos = await analitosDePdf(doc.attachmentBase64);
+            if (analitos.length) {
+              doc = { ...doc, analitos };
+              log.info('Analitos leídos del PDF', { id: doc.id, n: analitos.length });
             }
           }
 

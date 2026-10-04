@@ -68,6 +68,22 @@ describe('normalizeDoc', () => {
     expect(d.titulo).toBe('Urología');
   });
 
+  it('lee el formato limpio de la extensión v1.9 (servicio → especialidad)', () => {
+    const d = N.normalizeDoc({
+      categoria: 'Policlínica',
+      prestador: 'HOSPITAL CENTRAL',
+      prestadorNombre: 'Sociedad Hospital Central del Uruguay',
+      profesional: 'JUAN PÉREZ',
+      descripcion: 'servicio de urología',
+      text: '',
+    });
+    expect(d.prestador).toBe('Hospital Central');
+    expect(d.prestadorNombre).toBe('Sociedad Hospital Central del Uruguay');
+    expect(d.profesional).toBe('Juan Pérez');
+    expect(d.especialidad).toBe('Urología');
+    expect(d.titulo).toBe('Urología');
+  });
+
   it('mantiene siglas cortas', () => {
     const d = N.normalizeDoc({ categoria: 'Policlínica', descripcion: '01/02/2024\t\tCASMU\t\tNombre completo del prestador\tX', text: '' });
     expect(d.prestador).toBe('CASMU');

@@ -41,15 +41,29 @@ el scraper.
 - Origen: marca "Plataforma IPS", versión del visor y de la extensión,
   identificador de la exportación, y un link a la plataforma (G).
 
-## Fase 2 — Extensión: corregir el scraper (raíz de A y B)
+## Fase 2 — Extensión: corregir el scraper (raíz de A y B) ✅ (este PR, falta probar en el portal)
 
-- Revisar el mapeo de columnas del timeline de Mi HCD (`scraper.ts`,
-  `extractDescripcion`, `extractCell`) para que `prestador`, `profesional`
-  y `descripcion` lleguen en su campo.
-- Corregir la decodificación que produce el texto con acentos rotos.
-- Sumar a `metadata.json` un bloque `producer: { name, version }`. La
-  plataforma lo acepta: `HcdMetadata` usa `extra="allow"`.
-- Requiere probar contra el portal real con la sesión del titular.
+- `timeline-row.ts` lee cada fila del timeline por rótulos ("Profesional:",
+  "Descripción:") y por columnas (fecha, prestador, "Nombre completo del
+  prestador"), sin depender del DOM. Con las 1494 filas de la muestra:
+  prestador en las 977 filas con columnas, profesional sin la línea de
+  descripción y 0 textos con acentos rotos.
+- La reparación de acentos (UTF-8 leído como Latin-1, también doble) se hace
+  al capturar, con la misma regla que el visor.
+- Los ids y nombres de archivo siguen usando la descripción vieja
+  (`idDescripcion`, interna): un ZIP nuevo no duplica los documentos de uno
+  viejo en la plataforma.
+- `metadata.json` suma `producer: { name, version }`, `prestadorNombre` y,
+  en cada PDF, `analitos` (nombre, valor, unidad, referencia). La plataforma
+  los acepta (`extra="allow"`); el ZIP de demo pasa `ingest_zip` y el
+  escaneo de PII residual sin hallazgos.
+- Los analitos se leen en el service worker con pdf.js (build legacy, sin
+  DOM) y el parser del visor, después de la anonimización. Nunca se guarda el
+  texto del PDF: en los paquetes anonimizados el cabezal del PDF solo se tapa
+  visualmente. Así "Mis análisis" también funciona en el `visor.html` del ZIP.
+- Costo: el service worker pasa de 0,7 MB a 2,3 MB (pdf.js).
+- Falta: descargar con la sesión del titular y comparar campos, analitos e
+  ids contra un ZIP anterior.
 
 ## Fase 3 — Extensión: anonimización del cabezal (C)
 
@@ -99,7 +113,7 @@ alta con las siglas expandidas. Además, especialidades escritas distinto
 unificadas y reparación de texto codificado dos veces (en la muestra real
 quedan 0 campos con acentos rotos).
 
-## Fase 7 — Usar la historia ✅ (#6)
+## Fase 7 — Usar la historia ✅ (#6, v1.8.0)
 
 7. **Llevar a la consulta**: marcar documentos e imprimir un único PDF.
 8. **Notas y favoritos** por documento, guardados solo en ese navegador.
@@ -122,7 +136,7 @@ documentos duplicados. Con datos normalizados no hay duplicados exactos en
 la muestra: la extensión ya descarta HTML idénticos por SHA-256 al
 descargar. El detector queda como red de seguridad.
 
-## Fase 8 — Más allá del ZIP ✅ (este PR)
+## Fase 8 — Más allá del ZIP ✅ (#7, v1.8.0)
 
 11. **Varias HC a la vez**: abrir los ZIP de la familia y alternar entre
     personas (cuidadores).
