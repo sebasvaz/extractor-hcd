@@ -60,7 +60,11 @@
     filter: '<path d="M3 5h14M6 10h8M8.5 15h3"/>',
     close: '<path d="m5 5 10 10M15 5 5 15"/>',
     otros: '<path d="M3 6a1.5 1.5 0 0 1 1.5-1.5h3.2l1.6 2h6.2A1.5 1.5 0 0 1 17 8v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5z"/>',
-    especialidad: '<circle cx="10" cy="6.5" r="3"/><path d="M4.5 17a5.5 5.5 0 0 1 11 0"/>'
+    especialidad: '<circle cx="10" cy="6.5" r="3"/><path d="M4.5 17a5.5 5.5 0 0 1 11 0"/>',
+    diag: '<rect x="4.5" y="3.5" width="11" height="14" rx="1.5"/><path d="M8 3.5V5h4V3.5M7.5 9h5M7.5 12h5M7.5 15h3"/>',
+    pill: '<rect x="2.8" y="7.2" width="14.4" height="5.6" rx="2.8" transform="rotate(-45 10 10)"/><path d="m7.9 7.9 4.2 4.2"/>',
+    grid: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>',
+    print: '<path d="M6 7V3h8v4"/><rect x="3" y="7" width="14" height="7" rx="1.5"/><path d="M6 12h8v5H6z"/>'
   };
 
   // ---- Utilidades ------------------------------------------------------
@@ -227,7 +231,19 @@
     // ---- Índice ----------------------------------------------------------
 
     var N = window.HCDNormalize;
+    var X = window.HCDExtract;
+    var fix = N ? N.fixMojibake : function (x) { return x; };
     var docs = data.documents.map(function (d, i) {
+      if (typeof d.html === 'string' && X) {
+        var r = X.extract(d.html);
+        d.text = r.text;
+        d.cda = r.cda;
+        d.vacunas = r.vacunas;
+        d.diagnosticos = r.diagnosticos.map(fix);
+        d.medicamentos = r.medicamentos.map(fix);
+      }
+      delete d.html;
+      d.text = d.text || '';
       if (N) N.normalizeDoc(d);
       d._i = i;
       d._hay = norm([d.categoria, d.titulo, d.descripcion, d.especialidad, d.tipo, d.prestador, d.prestadorNombre,
@@ -237,6 +253,77 @@
     if (N) N.unifyPrestadores(docs);
     var byId = {};
     docs.forEach(function (d) { byId[d.id] = d; });
+
+    // ---- Lo esencial: vacunas, diagnósticos, medicamentos, equipo ----------
+
+    function sentence(s) {
+      s = (s || '').trim();
+      // Mayúsculas → oración; siglas cortas (HTA, EPOC) quedan como están.
+      if (s && s === s.toUpperCase() && /[A-ZÁÉÍÓÚÑ]{3}/.test(s) && (s.split(' ').length > 1 || s.length > 5)) {
+        s = s.toLowerCase();
+        return s.charAt(0).toUpperCase() + s.slice(1);
+      }
+      return s;
+    }
+
+    /** Ítems repetidos en varios documentos → uno, con sus fechas y documentos de origen. */
+    function agrupar(campo) {
+      var map = {};
+      docs.forEach(function (d) {
+        (d[campo] || []).forEach(function (item) {
+          var k = norm(item).replace(/[^a-z0-9]+/g, ' ').trim();
+          if (!k) return;
+          var g = map[k] || (map[k] = { label: sentence(item), docs: [], primera: d.fecha, ultima: d.fecha });
+          if (g.docs.indexOf(d) === -1) g.docs.push(d);
+          if (d.fecha && (!g.primera || d.fecha < g.primera)) g.primera = d.fecha;
+          if (d.fecha && (!g.ultima || d.fecha > g.ultima)) g.ultima = d.fecha;
+        });
+      });
+      return Object.keys(map).map(function (k) { return map[k]; });
+    }
+    var diagnosticos = agrupar('diagnosticos');
+    var medicamentos = agrupar('medicamentos');
+
+    // Cada documento de vacunas trae el historial completo: se deduplican las dosis.
+    var vacunas = (function () {
+      var dosis = {};
+      docs.forEach(function (d) {
+        (d.vacunas || []).forEach(function (v) {
+          var nombre = fix(v.vacuna);
+          var k = norm(nombre) + '|' + v.fecha + '|' + (v.dosis || '');
+          var x = dosis[k] || (dosis[k] = { vacuna: nombre, fecha: v.fecha, dosis: v.dosis || '', via: fix(v.via || ''),
+            vacunatorio: fix(v.vacunatorio || ''), doc: d });
+          if (d.fecha > x.doc.fecha) x.doc = d;
+        });
+      });
+      var grupos = {};
+      Object.keys(dosis).forEach(function (k) {
+        var x = dosis[k];
+        var g = grupos[norm(x.vacuna)] || (grupos[norm(x.vacuna)] = { vacuna: x.vacuna, dosis: [] });
+        g.dosis.push(x);
+      });
+      return Object.keys(grupos).map(function (k) {
+        var g = grupos[k];
+        g.dosis.sort(function (a, b) { return b.fecha.localeCompare(a.fecha); });
+        g.ultima = g.dosis[0].fecha;
+        return g;
+      }).sort(function (a, b) { return b.ultima.localeCompare(a.ultima) || a.vacuna.localeCompare(b.vacuna); });
+    })();
+    var nDosis = vacunas.reduce(function (n, g) { return n + g.dosis.length; }, 0);
+
+    var profesionales = (function () {
+      var map = {};
+      docs.forEach(function (d) {
+        if (!d.profesional) return;
+        var p = map[d.profesional] || (map[d.profesional] = { nombre: d.profesional, esp: {}, prest: {}, n: 0, ultima: '' });
+        p.n += 1;
+        if (d.especialidad) p.esp[d.especialidad] = (p.esp[d.especialidad] || 0) + 1;
+        if (d.prestador) p.prest[d.prestador] = 1;
+        if (d.fecha > p.ultima) p.ultima = d.fecha;
+      });
+      return Object.keys(map).map(function (k) { return map[k]; })
+        .sort(function (a, b) { return b.n - a.n || b.ultima.localeCompare(a.ultima); });
+    })();
     var porFecha = docs.slice().sort(function (a, b) {
       return (b.fecha || '').localeCompare(a.fecha || '') || a._i - b._i;
     });
@@ -269,6 +356,9 @@
 
     var state = { view: 'resumen', q: '', cat: '', year: '', prest: '', esp: '', asc: false, sel: null, filters: false };
     var visible = [];
+
+    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1 };
+    function enPanel() { return PANELES[state.view] && !state.sel; }
 
     function terms() { return norm(state.q).split(/\s+/).filter(Boolean); }
     function filtered() { return Boolean(state.q || state.cat || state.year || state.prest || state.esp); }
@@ -371,6 +461,21 @@
               function () { return state.view === 'list' && !state.cat && !state.prest && !state.esp; },
               function () { go({ view: 'list', cat: '', prest: '', esp: '' }); })
           ]),
+          h('div', { class: 'nav-group' }, [
+            groupLabel('Lo esencial'),
+            navLink('Vacunas', 'vacunas', nDosis || null,
+              function () { return state.view === 'vacunas' && !state.sel; },
+              function () { go({ view: 'vacunas' }, null); }),
+            navLink('Diagnósticos', 'diag', diagnosticos.length || null,
+              function () { return state.view === 'diagnosticos' && !state.sel; },
+              function () { go({ view: 'diagnosticos' }, null); }),
+            navLink('Medicamentos', 'pill', medicamentos.length || null,
+              function () { return state.view === 'medicamentos' && !state.sel; },
+              function () { go({ view: 'medicamentos' }, null); }),
+            navLink('Médicos y prestadores', 'especialidad', profesionales.length || null,
+              function () { return state.view === 'equipo' && !state.sel; },
+              function () { go({ view: 'equipo' }, null); })
+          ]),
           h('div', { class: 'nav-group' }, [groupLabel('Categorías')].concat(cats.map(function (c) {
             return navLink(c, catMeta(c).icon, catCount[c],
               function () { return state.view === 'list' && state.cat === c; },
@@ -448,6 +553,21 @@
         ]),
         h('label', { class: 'search search-big' }, [ico('search', 18), bigInput, h('span', { class: 'kbd', text: '/' })]),
         h('section', { class: 'sec' }, [
+          secHead(plainIcon('grid', '#0F4675', '#E8F1F9'), 'Lo esencial', 'Armado a partir de tus documentos, con link a cada uno'),
+          h('div', { class: 'cat-grid' }, [
+            ['vacunas', 'Vacunas', nDosis ? plural(nDosis, 'dosis', 'dosis') + ' · ' + plural(vacunas.length, 'vacuna', 'vacunas') : 'Sin historial legible'],
+            ['diagnosticos', 'Diagnósticos', plural(diagnosticos.length, 'diagnóstico', 'diagnósticos')],
+            ['medicamentos', 'Medicamentos', plural(medicamentos.length, 'medicamento', 'medicamentos')],
+            ['equipo', 'Médicos y prestadores', plural(profesionales.length, 'profesional', 'profesionales') + ' · ' + plural(prests.length, 'prestador', 'prestadores')]
+          ].map(function (c) {
+            var m = PANEL_META[c[0]];
+            return h('button', { class: 'cat-card', type: 'button', onclick: function () { go({ view: c[0] }, null); } }, [
+              h('div', { class: 'sec-icon sm', style: '--fg:' + m.fg + ';--bg:' + m.bg }, [ico(m.icono, 18)]),
+              h('div', { style: 'min-width:0' }, [h('b', { text: c[1] }), h('span', { text: c[2] })])
+            ]);
+          }))
+        ]),
+        h('section', { class: 'sec' }, [
           secHead(plainIcon('file', '#0F4675', '#E8F1F9'), 'Por categoría', 'Tipo de consulta o estudio, como lo clasifica Mi HCD',
             plural(cats.length, 'categoría', 'categorías')),
           h('div', { class: 'cat-grid' }, cats.map(function (c) {
@@ -491,6 +611,179 @@
           h('a', { class: 'btn', href: PLATFORM_URL, target: '_blank', rel: 'noopener noreferrer' }, [ico('external', 15), 'Conocer el proyecto'])
         ])
       ])]);
+    }
+
+    // ---- Vistas de "Lo esencial" ------------------------------------------
+
+    var panelEl;
+    var panelOrden = 'reciente';
+    var AVISO = 'Armado automáticamente a partir de tus documentos. Ante cualquier duda, abrí el documento original o consultá a tu médico.';
+    var PANEL_META = {
+      vacunas: { titulo: 'Mi carné de vacunas', icono: 'vacunas', fg: '#065f46', bg: '#d1fae5' },
+      diagnosticos: { titulo: 'Mis diagnósticos', icono: 'diag', fg: '#1e4f9c', bg: '#e8f0fb' },
+      medicamentos: { titulo: 'Mis medicamentos', icono: 'pill', fg: '#166534', bg: '#e6f5ee' },
+      equipo: { titulo: 'Mis médicos y prestadores', icono: 'especialidad', fg: '#0F4675', bg: '#E8F1F9' }
+    };
+
+    function docLink(d, texto) {
+      return h('button', { class: 'doclink', type: 'button', onclick: function () { select(d.id); } }, [
+        h('span', { class: 'mono', text: fechaCorta(d.fecha) }), ' ', texto || titulo(d)
+      ]);
+    }
+
+    function vacio(texto) { return h('div', { class: 'empty', text: texto }); }
+
+    function panelVacunas() {
+      if (!vacunas.length) {
+        var docsVac = docs.filter(function (d) { return d.categoria === 'Vacunas'; });
+        return h('div', null, [
+          vacio('Tus documentos no traen el historial de vacunas en un formato que el visor pueda leer.'),
+          docsVac.length ? h('div', { class: 'doclinks' }, docsVac.map(function (d) { return docLink(d); })) : null
+        ]);
+      }
+      return h('div', { class: 'vac-list' }, vacunas.map(function (g) {
+        return h('section', { class: 'vac-card' }, [
+          h('div', { class: 'vac-head' }, [
+            h('h3', { text: g.vacuna }),
+            h('span', { class: 'tag', text: plural(g.dosis.length, 'dosis', 'dosis') })
+          ]),
+          h('table', { class: 'vac-table' }, [
+            h('thead', null, [h('tr', null, ['Fecha', 'Dosis', 'Vía', 'Vacunatorio', ''].map(function (t) { return h('th', { text: t }); }))]),
+            h('tbody', null, g.dosis.map(function (x) {
+              return h('tr', null, [
+                h('td', { class: 'mono', text: fechaCorta(x.fecha) }),
+                h('td', { text: x.dosis }),
+                h('td', { text: x.via }),
+                h('td', { text: x.vacunatorio }),
+                h('td', { class: 'no-print' }, [h('button', { class: 'linkbtn', type: 'button', text: 'Ver documento',
+                  onclick: function () { select(x.doc.id); } })])
+              ]);
+            }))
+          ])
+        ]);
+      }));
+    }
+
+    function panelItems(lista, vacioTexto) {
+      if (!lista.length) return vacio(vacioTexto);
+      var orden = lista.slice().sort(panelOrden === 'frecuente'
+        ? function (a, b) { return b.docs.length - a.docs.length || b.ultima.localeCompare(a.ultima); }
+        : function (a, b) { return b.ultima.localeCompare(a.ultima) || b.docs.length - a.docs.length; });
+      return h('div', null, [
+        h('div', { class: 'panel-tools' }, [
+          h('span', { class: 'caption', text: plural(lista.length, 'ítem', 'ítems') }),
+          h('div', { class: 'seg', role: 'group', 'aria-label': 'Orden' }, [['reciente', 'Más recientes'], ['frecuente', 'Más frecuentes']].map(function (o) {
+            return h('button', { type: 'button', 'aria-pressed': panelOrden === o[0] ? 'true' : 'false', text: o[1],
+              onclick: function () { panelOrden = o[0]; renderPanel(); } });
+          }))
+        ]),
+        h('ul', { class: 'items' }, orden.map(function (g) {
+          var rango = fechaCorta(g.primera) + (g.ultima !== g.primera ? ' – ' + fechaCorta(g.ultima) : '');
+          return h('li', null, [h('details', null, [
+            h('summary', null, [
+              h('span', { class: 'item-label', text: g.label }),
+              h('span', { class: 'item-meta' }, [
+                h('span', { class: 'mono', text: rango }),
+                h('span', { class: 'tag', text: plural(g.docs.length, 'documento', 'documentos') })
+              ])
+            ]),
+            h('div', { class: 'doclinks' }, g.docs.slice().sort(function (a, b) { return b.fecha.localeCompare(a.fecha); })
+              .map(function (d) { return docLink(d); }))
+          ])]);
+        }))
+      ]);
+    }
+
+    function heatmap() {
+      var counts = {};
+      var max = 0;
+      docs.forEach(function (d) {
+        var p = parseFecha(d.fecha);
+        if (!p) return;
+        var k = p.y + '-' + p.m;
+        counts[k] = (counts[k] || 0) + 1;
+        if (counts[k] > max) max = counts[k];
+      });
+      var anios = years.slice().sort();
+      return h('div', { class: 'heat-wrap' }, [h('table', { class: 'heat' }, [
+        h('thead', null, [h('tr', null, [h('th', { text: '' })].concat(MESES.map(function (m) {
+          return h('th', { text: m.slice(0, 3) });
+        })).concat([h('th', { text: 'Total' })]))]),
+        h('tbody', null, anios.map(function (y) {
+          return h('tr', null, [h('th', null, [h('button', { class: 'linkbtn', type: 'button', text: y,
+            onclick: function () { go({ view: 'list', year: y, cat: '', prest: '', esp: '', q: '' }); } })])]
+            .concat(MESES.map(function (m, i) {
+              var n = counts[y + '-' + (i + 1)] || 0;
+              var nivel = n ? Math.min(4, Math.ceil((n / max) * 4)) : 0;
+              return h('td', { class: 'heat-' + nivel, title: n ? plural(n, 'documento', 'documentos') + ' en ' + m + ' ' + y : '' },
+                [n ? String(n) : '']);
+            }))
+            .concat([h('td', { class: 'heat-total', text: String(yearCount[y] || 0) })]));
+        }))
+      ])]);
+    }
+
+    function panelEquipo() {
+      return h('div', null, [
+        h('h3', { class: 'panel-sub', text: 'Consultas por mes' }),
+        heatmap(),
+        h('h3', { class: 'panel-sub', text: 'Profesionales' }),
+        profesionales.length ? h('div', { class: 'tbl-wrap' }, [h('table', { class: 'tbl' }, [
+          h('thead', null, [h('tr', null, ['Profesional', 'Especialidad', 'Prestador', 'Documentos', 'Último'].map(function (t) {
+            return h('th', { text: t });
+          }))]),
+          h('tbody', null, profesionales.map(function (p) {
+            var esp = Object.keys(p.esp).sort(function (a, b) { return p.esp[b] - p.esp[a]; });
+            return h('tr', null, [
+              h('td', null, [h('button', { class: 'linkbtn', type: 'button', text: p.nombre,
+                onclick: function () { searchInput.value = p.nombre; go({ view: 'list', q: p.nombre, cat: '', prest: '', esp: '', year: '' }); } })]),
+              h('td', { text: esp.slice(0, 2).join(', ') }),
+              h('td', { text: Object.keys(p.prest).join(', ') }),
+              h('td', { class: 'num', text: String(p.n) }),
+              h('td', { class: 'mono', text: fechaCorta(p.ultima) })
+            ]);
+          }))
+        ])]) : vacio('Los documentos no indican profesionales.'),
+        h('h3', { class: 'panel-sub', text: 'Prestadores' }),
+        h('div', { class: 'cat-grid' }, prests.map(function (p) {
+          var nombre = '';
+          docs.some(function (d) { if (d.prestador === p && d.prestadorNombre) { nombre = d.prestadorNombre; return true; } return false; });
+          return h('button', { class: 'cat-card', type: 'button', title: nombre || null,
+            onclick: function () { go({ view: 'list', prest: p, cat: '', esp: '' }); } }, [
+            h('div', { class: 'sec-icon sm', style: '--fg:#0F4675;--bg:#E8F1F9' }, [ico('building', 18)]),
+            h('div', { style: 'min-width:0' }, [h('b', { text: p }), h('span', { text: plural(prestCount[p], 'documento', 'documentos') })])
+          ]);
+        }))
+      ]);
+    }
+
+    function renderPanel() {
+      if (!panelEl) return;
+      panelEl.textContent = '';
+      var meta = PANEL_META[state.view];
+      if (!meta) return;
+      var cuerpo, badge;
+      if (state.view === 'vacunas') { cuerpo = panelVacunas(); badge = plural(nDosis, 'dosis', 'dosis'); }
+      else if (state.view === 'diagnosticos') { cuerpo = panelItems(diagnosticos, 'Tus documentos no traen diagnósticos en un formato que el visor pueda leer.'); badge = diagnosticos.length; }
+      else if (state.view === 'medicamentos') { cuerpo = panelItems(medicamentos, 'Tus documentos no traen medicamentos indicados en un formato que el visor pueda leer.'); badge = medicamentos.length; }
+      else { cuerpo = panelEquipo(); badge = plural(profesionales.length, 'profesional', 'profesionales'); }
+      panelEl.appendChild(h('div', { class: 'resumen-inner' }, [
+        h('button', { class: 'linkbtn panel-back', type: 'button', onclick: function () { go({ view: 'resumen' }, null); } }, ['← Resumen']),
+        h('div', { class: 'print-only print-head', text: 'Mi historia clínica' + (data.patientName ? ' · ' + data.patientName : '') +
+          ' · descargada de Mi HCD el ' + fechaCorta((data.exportedAt || '').slice(0, 10)) }),
+        h('section', { class: 'sec' }, [
+          h('div', { class: 'sec-head' }, [
+            plainIcon(meta.icono, meta.fg, meta.bg),
+            h('div', null, [h('h2', { text: meta.titulo }), h('p', { text: AVISO })]),
+            h('span', { class: 'sec-badge', text: String(badge) }),
+            state.view === 'vacunas' && vacunas.length ? h('button', { class: 'btn no-print', type: 'button', onclick: function () { window.print(); } },
+              [ico('print', 15), 'Imprimir carné']) : null
+          ]),
+          cuerpo
+        ])
+      ]));
+      panelEl.scrollTop = 0;
+      panelEl.setAttribute('data-view', state.view + panelOrden);
     }
 
     // ---- Barra de búsqueda, filtros y lista -------------------------------
@@ -660,6 +953,10 @@
     function render() {
       filtrar();
       appEl.classList.toggle('mode-resumen', state.view === 'resumen' && !state.sel);
+      appEl.classList.toggle('mode-panel', Boolean(enPanel()));
+      Array.prototype.forEach.call(mpanelsEl.children, function (b) {
+        b.setAttribute('aria-pressed', b.getAttribute('data-view') === state.view && !state.sel ? 'true' : 'false');
+      });
       appEl.classList.toggle('reading', Boolean(state.sel));
       appEl.classList.toggle('show-filters', state.filters);
       navLinks.forEach(function (n) { n.el.setAttribute('aria-current', n.current() ? 'true' : 'false'); });
@@ -674,6 +971,10 @@
       renderList();
       renderDoc();
       renderMtop();
+      if (enPanel() && panelEl.getAttribute('data-view') !== state.view + panelOrden) {
+        renderPanel();
+        panelEl.setAttribute('data-view', state.view + panelOrden);
+      }
       var cur = listEl.querySelector('.tl-item[aria-current="true"]');
       if (cur) cur.scrollIntoView({ block: 'nearest' });
     }
@@ -720,14 +1021,22 @@
     mtopEl = h('header', { class: 'mtop' });
     var bar = toolbar();
     var resumenEl = resumen();
+    panelEl = h('div', { class: 'panel' });
+    var mpanelsEl = h('div', { class: 'mpanels', role: 'group', 'aria-label': 'Lo esencial' },
+      [['vacunas', 'Vacunas'], ['diagnosticos', 'Diagnósticos'], ['medicamentos', 'Medicamentos'], ['equipo', 'Médicos']].map(function (v) {
+        return h('button', { class: 'chip chip-esencial', type: 'button', 'data-view': v[0],
+          onclick: function () { go({ view: state.view === v[0] ? 'list' : v[0] }, null); } }, [ico(PANEL_META[v[0]].icono, 14), v[1]]);
+      }));
     appEl = h('div', { class: 'app' }, [
       sidebar(),
       h('div', { class: 'content' }, [
         mtopEl,
         bar,
+        mpanelsEl,
         chips(),
         h('div', { class: 'views' }, [
           resumenEl,
+          panelEl,
           h('div', { class: 'split' }, [
             h('section', { class: 'results', 'aria-label': 'Resultados' }, [resultsHead, listEl]),
             docEl

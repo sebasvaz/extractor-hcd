@@ -14,39 +14,11 @@
   var V = window.HCDViewer;
   var h = V.h;
   var ico = V.ico;
-  var MAX_TEXT_CHARS = 30000;
 
   var root = document.getElementById('app');
   var urls = [];
 
   // ---- Lectura del ZIP ---------------------------------------------------
-
-  function clean(s) { return (s || '').replace(/[\s ]+/g, ' ').trim(); }
-
-  /**
-   * Texto visible y cabezal de un HTML, como `htmlToPlainText` y
-   * `extractCdaHeader` de index.ts. Del cabezal solo se leen título,
-   * Prestador, Profesional y Fecha del evento; nunca los datos del paciente.
-   */
-  var CDA_LABELS = { prestador: 'prestador', profesional: 'profesional', 'fecha del evento': 'fechaHora' };
-  function readHtml(html) {
-    var doc = new DOMParser().parseFromString(html, 'text/html');
-    var cda = {};
-    var title = clean(doc.title);
-    if (title) cda.titulo = title;
-    Array.prototype.forEach.call(doc.querySelectorAll('td'), function (td) {
-      var key = CDA_LABELS[clean(td.textContent).toLowerCase()];
-      var next = td.nextElementSibling;
-      if (key && !cda[key] && next && next.tagName === 'TD') {
-        var v = clean(next.textContent);
-        if (v) cda[key] = v;
-      }
-    });
-    Array.prototype.forEach.call(doc.querySelectorAll('script, style, noscript, template, #b64'), function (el) {
-      el.remove();
-    });
-    return { text: clean(doc.body ? doc.body.textContent : '').slice(0, MAX_TEXT_CHARS), cda: cda };
-  }
 
   /** Encuentra metadata.json aunque el ZIP se haya vuelto a comprimir dentro de una carpeta. */
   function findMetadata(zip) {
@@ -86,7 +58,7 @@
     return meta.documents.reduce(function (p, d) {
       return p.then(function () {
         var out = {
-          id: d.id, file: d.file, categoria: d.categoria || 'Otros', fecha: d.fecha || '', text: ''
+          id: d.id, file: d.file, categoria: d.categoria || 'Otros', fecha: d.fecha || ''
         };
         if (d.prestador) out.prestador = d.prestador;
         if (d.profesional) out.profesional = d.profesional;
@@ -102,10 +74,10 @@
           });
         } else if (htmlEntry) {
           work = htmlEntry.async('string').then(function (html) {
+            // El cliente extrae texto, cabezal y secciones (viewer-extract.js)
+            // y descarta `out.html`; `htmlById` queda para mostrarlo con srcdoc.
             htmlById[d.id] = html;
-            var r = readHtml(html);
-            out.text = r.text;
-            if (Object.keys(r.cda).length) out.cda = r.cda;
+            out.html = html;
           });
         } else {
           work = Promise.resolve();

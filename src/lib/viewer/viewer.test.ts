@@ -7,16 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CapturedDocument } from '../messaging/types';
 import { buildMetadata, buildZip, type BuildZipArgs } from '../zip-builder';
-import {
-  buildStandaloneViewerHtml,
-  buildViewerData,
-  buildViewerHtml,
-  extractCdaHeader,
-  htmlToPlainText,
-  MAX_TEXT_CHARS,
-  VIEWER_FILE,
-  VIEWER_VERSION,
-} from '.';
+import { buildStandaloneViewerHtml, buildViewerData, buildViewerHtml, VIEWER_FILE, VIEWER_VERSION } from '.';
 
 function makeDoc(overrides: Partial<CapturedDocument> = {}): CapturedDocument {
   return {
@@ -54,32 +45,14 @@ function embeddedData(html: string): unknown {
   return JSON.parse(m![1]!);
 }
 
-describe('htmlToPlainText', () => {
-  it('quita head, scripts, estilos y comentarios', () => {
-    const html =
-      '<html><head><title>No</title><style>p{}</style></head><body><!-- x --><script>alert(1)</script><p>Sí</p></body></html>';
-    expect(htmlToPlainText(html)).toBe('Sí');
-  });
-
-  it('decodifica entidades con nombre y numéricas', () => {
-    expect(htmlToPlainText('<p>Ni&ntilde;o &amp; mam&#225; &#x2014; 5&nbsp;mg</p>')).toBe('Niño & mamá — 5 mg');
-  });
-
-  it('separa celdas contiguas y colapsa espacios', () => {
-    expect(htmlToPlainText('<tr><td>Glucemia</td><td>90</td></tr>\n\n  <p>ok</p>')).toBe('Glucemia 90 ok');
-  });
-
-  it('descarta el base64 de un PDF embebido', () => {
-    expect(htmlToPlainText('<body><pre id="b64">JVBERi0xLjQK</pre><p>Informe</p></body>')).toBe('Informe');
-  });
-});
-
 describe('buildViewerData', () => {
-  it('incluye el texto del documento para la búsqueda', () => {
+  it('embebe el HTML del documento para que el visor lo procese', () => {
     const data = buildViewerData(buildMetadata(args()), [makeDoc()]);
-    expect(data.documents[0]!.text).toBe('Hemoglobina 13,2 g/dL');
+    expect(data.documents[0]!.html).toContain('Hemoglobina&nbsp;13,2 g/dL');
     expect(data.patientName).toBe('Juan Pérez');
     expect(data.anonymized).toBe(false);
+    expect(data.viewerVersion).toBe(VIEWER_VERSION);
+    expect(data.exportId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it('no expone el nombre del titular si el paquete es anonimizado', () => {
@@ -89,21 +62,29 @@ describe('buildViewerData', () => {
     expect(JSON.stringify(data)).not.toContain('Juan');
   });
 
-  it('usa el PDF adjunto y no indexa el HTML de la portada', () => {
+  it('usa el PDF adjunto y no embebe el HTML de la portada', () => {
     const doc = makeDoc({ attachmentBase64: 'JVBERi0=', attachmentMime: 'application/pdf' });
     const data = buildViewerData(buildMetadata(args({ documents: [doc] })), [doc]);
     expect(data.documents[0]!.pdf).toBe(`docs/${doc.id}.pdf`);
-    expect(data.documents[0]!.text).toBe('');
+    expect(data.documents[0]!.html).toBeUndefined();
   });
 
-  it('acota el texto indexado por documento', () => {
-    const doc = makeDoc({ html: `<p>${'a '.repeat(MAX_TEXT_CHARS)}</p>` });
-    const data = buildViewerData(buildMetadata(args({ documents: [doc] })), [doc]);
-    expect(data.documents[0]!.text.length).toBe(MAX_TEXT_CHARS);
+  it('registra la versión de la extensión', () => {
+    const data = buildViewerData(buildMetadata(args()), [makeDoc()], { extensionVersion: '9.9.9' });
+    expect(data.extensionVersion).toBe('9.9.9');
   });
 });
 
 describe('buildViewerHtml', () => {
+  it('el HTML embebido no puede cerrar el <script> ni ser leído como tabla por el escaneo de PII', () => {
+    const doc = makeDoc({ html: '<table><tr><td>Documento</td><td>12345678</td></tr></table><script>x()</script>' });
+    const html = buildViewerHtml(buildMetadata(args({ documents: [doc] })), [doc]);
+    expect(html).not.toContain('<td>Documento</td>');
+    expect(html).not.toContain('<script>x()</script>');
+    const data = embeddedData(html) as { documents: Array<{ html: string }> };
+    expect(data.documents[0]!.html).toContain('<td>Documento</td>');
+  });
+
   it('el contenido no puede cerrar el <script> del JSON embebido', () => {
     const doc = makeDoc({ descripcion: '</script><img src=x onerror=alert(1)>' });
     const html = buildViewerHtml(buildMetadata(args({ documents: [doc] })), [doc]);
@@ -147,37 +128,5 @@ describe('buildStandaloneViewerHtml', () => {
     expect(html).toContain("connect-src 'none'");
     expect(html).toContain('frame-src blob: data:');
     expect(html).not.toMatch(/<(script|link)[^>]+(src|href)=["']https?:/);
-  });
-});
-
-describe('extractCdaHeader', () => {
-  const cda = `<html><head><title>Consulta no urgente</title></head><body><table>
-<tr><td><span class="td_label">Nombre</span></td><td>[PACIENTE]</td></tr>
-<tr><td><span class="td_label">Fecha de nacimiento</span></td><td>Enero 1, 1950</td></tr>
-<tr><td><span class="td_label">Prestador</span></td><td>Hospital &amp; Clínica</td></tr>
-<tr><td class="x"><span class="td_label">Profesional</span></td><td><b>ANA GÓMEZ</b></td></tr>
-<tr><td><span class="td_label">Fecha del evento</span></td><td>Marzo 23, 2026, 09:45:00</td></tr>
-</table></body></html>`;
-
-  it('lee título, prestador, profesional y fecha del evento', () => {
-    expect(extractCdaHeader(cda)).toEqual({
-      titulo: 'Consulta no urgente',
-      prestador: 'Hospital & Clínica',
-      profesional: 'ANA GÓMEZ',
-      fechaHora: 'Marzo 23, 2026, 09:45:00',
-    });
-  });
-
-  it('nunca lee los datos del paciente', () => {
-    expect(JSON.stringify(extractCdaHeader(cda))).not.toMatch(/PACIENTE|1950/);
-  });
-
-  it('va al índice del visor', () => {
-    const doc = makeDoc({ html: cda });
-    const data = buildViewerData(buildMetadata(args({ documents: [doc] })), [doc], { extensionVersion: '9.9.9' });
-    expect(data.documents[0]!.cda?.prestador).toBe('Hospital & Clínica');
-    expect(data.extensionVersion).toBe('9.9.9');
-    expect(data.viewerVersion).toBe(VIEWER_VERSION);
-    expect(data.exportId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

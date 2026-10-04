@@ -31,6 +31,20 @@ const EVENTOS: Array<[string, string, string, string]> = [
   ['2026-08-19', 'Policlínica', 'Control anual', 'Control anual. PA 128/80. Hemoglobina 13,8 g/dL. Se solicita perfil lipídico.'],
 ];
 
+const VACUNAS = `<h2>HISTORIAL DE VACUNAS</h2>
+<ul><li><h3>COVID 19 - PFIZER-BIONTECH</h3></li></ul>
+<ul><ul><li>Fecha: 2021-05-08 00:00:00</li><li>Número de dosis: 1</li><li>Vía de administración: inyectable</li><li>Vacunatorio: Vacunatorio Ficticio Centro</li></ul><br>
+<ul><li>Fecha: 2021-06-05 00:00:00</li><li>Número de dosis: 2</li><li>Vía de administración: inyectable</li><li>Vacunatorio: Vacunatorio Ficticio Centro</li></ul><br></ul>
+<ul><li><h3>ANTIGRIPAL 2019</h3></li></ul>
+<ul><ul><li>Fecha: 2019-11-02 00:00:00</li><li>Número de dosis: 1</li><li>Vía de administración: inyectable</li><li>Vacunatorio: Policlínica Ficticia Norte</li></ul><br></ul>
+<hr>`;
+
+function i2med(desc: string): string {
+  if (/diabetes/i.test(desc)) return 'METFORMINA 850 MG COMPRIMIDOS';
+  if (/hipertensi/i.test(desc)) return 'ENALAPRIL 10 MG COMPRIMIDOS';
+  return 'PARACETAMOL 500 MG COMPRIMIDOS';
+}
+
 function cdaHtml(fecha: string, cat: string, desc: string, body: string, prest: string, prof: string, withScript: boolean): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${desc}</title>
 <style>body{font-family:Arial,sans-serif;margin:16px}table{border-collapse:collapse}td{padding:3px 8px}.td_label{font-weight:bold}h2{color:#1d4f91}</style>
@@ -43,7 +57,9 @@ ${withScript ? '<script>document.title="SCRIPT EJECUTADO";document.addEventListe
 <tr><td><span class="td_label">Prestador</span></td><td>${prest}</td></tr>
 <tr><td><span class="td_label">Profesional</span></td><td>${prof}</td></tr></table>
 <h3>Motivo / Evolución</h3><p>${body}</p>
-<h3>Diagnósticos</h3><ul><li>${desc}</li></ul>
+<h3>Diagnósticos</h3><div><table><tr><td>Diagnóstico</td><td>Estado</td></tr><tr><td>${desc.toUpperCase()}</td><td>Activo</td></tr></table></div>
+${cat === 'Policlínica' || cat === 'Teleconsulta' ? `<h3>Tratamiento farmacológico indicado al final de la asistencia</h3><div><ul><li>Fármaco: ${i2med(desc)}</li><li>Vía de administración: ORAL</li><li>Observaciones relevantes:</li></ul></div>` : ''}
+${cat === 'Vacunas' ? VACUNAS : ''}
 </body></html>`;
 }
 
