@@ -436,6 +436,7 @@ experimento de investigación** (como el pipeline IPS de este proyecto) o
 |---|---|---|
 | `[PACIENTE]` | Nombre completo del titular tal como figura en el encabezado de los documentos | `patient.displayName` del portal |
 | `[CI]` | Cédula de identidad uruguaya (formatos `1.234.567-8`, `12345678`, `1234567/8`) | Regex con filtro de longitud 7-8 dígitos |
+| `[ID]` | Identificador interno del paciente en el campo "Documento" del cabezal del CDA (HCEN, EMPI o id del prestador) | Pasada estructural sobre el cabezal |
 | `[TEL_1]`, `[TEL_2]`... | Teléfonos uruguayos (móviles `09X XXX XXX`, fijos `2XXX XXXX`/`4XXX XXXX`, con o sin `+598`) | Regex de patrones UY |
 | `[EMAIL_1]`, `[EMAIL_2]`... | Correos electrónicos | Regex RFC-ish pragmático |
 
@@ -455,6 +456,13 @@ análisis sin revelar el valor original.
 - **Prestadores**: ASSE, mutualistas, policlínicas también quedan tal cual.
 - **Fechas**: se preservan — desplazarlas rompería la interpretación
   temporal del historial, y eliminarlas rompería la trazabilidad.
+- **Fecha de nacimiento y sexo del cabezal del CDA**: se preservan a
+  propósito. La Plataforma IPS los necesita para la edad y el sexo del
+  Resumen del Paciente, para controlar la edad que menciona la narrativa y
+  para cruzar el calendario de vacunación por edad. Junto con los demás
+  datos clínicos pueden ayudar a reidentificar al titular: la anonimización
+  básica no hace anónimo el paquete, solo quita los identificadores
+  directos.
 - **Atributos de HTML**: la anonimización nunca toca el interior de los
   tags (por ejemplo, un `mailto:foo@bar.com` en un `href` queda intacto),
   sólo actúa sobre texto visible para evitar romper estructura.

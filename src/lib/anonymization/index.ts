@@ -31,6 +31,10 @@
  *   - Nombres de profesionales y prestadores (a propósito — preserva la
  *     trazabilidad clínica).
  *   - Fechas (clínicas y administrativas).
+ *   - Fecha de nacimiento y sexo del cabezal del CDA: la Plataforma IPS los
+ *     usa para la edad y el sexo del IPS, el control de edad de la narrativa
+ *     y el calendario de vacunación (decisión del 04/10/2026, fase 3 de
+ *     docs/PLAN_VISOR.md).
  *
  * Estrategia de implementación:
  *   Trabajamos sobre el string HTML, NO sobre un DOM. Razones:

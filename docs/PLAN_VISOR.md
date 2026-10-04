@@ -65,19 +65,42 @@ el scraper.
 - Falta: descargar con la sesión del titular y comparar campos, analitos e
   ids contra un ZIP anterior.
 
-## Fase 3 — Extensión: anonimización del cabezal (C)
+## Fase 3 — Extensión: anonimización del cabezal (C) ✅ decidido: se conservan
 
-- Tokenizar o quitar fecha de nacimiento y sexo del cabezal CDA cuando la
-  anonimización está activa.
-- Coordinar con el escaneo de PII residual de la plataforma
-  (`pii_residual_check.py`) para que lo detecte en paquetes viejos.
+- La fecha de nacimiento y el sexo del cabezal del CDA **se conservan** en
+  los paquetes anonimizados (decisión del 04/10/2026). La Plataforma IPS los
+  usa: `fhir_composer.py` completa edad y sexo del Patient desde la
+  narrativa, `post_validators.py` extrae la fecha de nacimiento del texto
+  para controlar la edad (F1-02) y el calendario de vacunación cruza por
+  edad. Sacarlos degradaría los IPS y cambiaría los paquetes respecto al
+  corpus ya evaluado.
+- Queda documentado en el README (§13), en el popup y en el motor de
+  anonimización.
 
-## Fase 4 — Plataforma: revisar la ingesta
+## Fase 4 — Plataforma: revisar la ingesta ✅ revisada (sin cambios antes de la defensa)
 
-- Verificar si `normalize.py`, `fhir_composer.py` o `pdf_redact.py` usan
-  `descripcion`, `profesional` o `prestador` de `metadata.json` y si el
-  problema A les afecta.
-- Si afecta, reutilizar las mismas reglas de normalización del visor.
+Qué usa la plataforma de `metadata.json` (`backend/app/ips/normalize.py`):
+
+- **Profesional**: la primera línea de `profesional`. Con el formato viejo
+  ("NOMBRE\nDescripción: servicio de X") la primera línea ya era el nombre,
+  así que el problema A no le afectaba. Con la v1.9 llega el nombre solo y,
+  si el portal no trae profesional, el campo queda vacío y se usa
+  "Profesional desconocido" (antes podía colarse la línea de descripción).
+- **Institución**: busca cuatro nombres conocidos (Asociación Española,
+  Médica Uruguaya, MSP) en `descripcion` + `profesional` y, si no aparecen,
+  en el HTML del documento. No lee `prestador`. En la base de investigación
+  1079 de 1326 eventos (81 %) quedan como "Desconocida".
+- La institución y el profesional alimentan el esqueleto FHIR
+  (Organization, Practitioner, Encounter) y las líneas de tiempo de las
+  vistas de evaluador e investigador.
+
+Efecto de la v1.9: `descripcion` ya no trae el nombre completo del
+prestador, así que el primer intento de la institución deja de encontrarlo
+y queda el del HTML. Los ZIP ya ingresados no cambian.
+
+Mejora posible para después de la defensa (toca el pipeline): que
+`normalize.py` lea `prestador` y `prestadorNombre` y use un directorio de
+prestadores en lugar de cuatro palabras clave.
 
 ## Fase 5 — Lo esencial de mi historia ✅ (#4, v1.6.0)
 
