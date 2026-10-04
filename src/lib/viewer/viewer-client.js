@@ -65,6 +65,8 @@
     pill: '<rect x="2.8" y="7.2" width="14.4" height="5.6" rx="2.8" transform="rotate(-45 10 10)"/><path d="m7.9 7.9 4.2 4.2"/>',
     grid: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/>',
     star: '<path d="m10 3 2.1 4.4 4.9.6-3.6 3.4.9 4.8L10 13.9l-4.3 2.3.9-4.8L3 8l4.9-.6z"/>',
+    ips: '<path d="M10 3 4 5.5V10c0 3.5 2.6 6.2 6 7 3.4-.8 6-3.5 6-7V5.5z"/><path d="M7.5 10h5M10 7.5v5"/>',
+    users: '<circle cx="7.5" cy="7" r="2.5"/><path d="M3 16a4.5 4.5 0 0 1 9 0"/><circle cx="14" cy="8" r="2"/><path d="M13 12.2a3.8 3.8 0 0 1 4.5 3.8"/>',
     note: '<path d="M4 16.5V13l8.5-8.5 3.5 3.5L7.5 16.5z"/><path d="m11 6 3.5 3.5"/>',
     plus: '<path d="M10 4v12M4 10h12"/>',
     check: '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>',
@@ -390,9 +392,19 @@
         try { window.localStorage.setItem('hcd:' + k, JSON.stringify(v)); } catch (e) { /* sin almacenamiento */ }
       }
     };
-    var favs = store.get('favs', {});
-    var notas = store.get('notas', {});
-    var consulta = store.get('consulta', []).filter(function (id) { return byId[id]; });
+    // Favoritos, notas y consulta van por persona: dos historias de la familia
+    // pueden tener documentos con el mismo id. La huella usa los 10 documentos
+    // más antiguos, que no cambian entre una descarga y la siguiente.
+    var persona = (function () {
+      var ids = docs.slice().sort(function (a, b) { return (a.fecha || '').localeCompare(b.fecha || '') || a.id.localeCompare(b.id); })
+        .slice(0, 10).map(function (d) { return d.id; }).join('|');
+      var x = 5381;
+      for (var i = 0; i < ids.length; i++) x = ((x << 5) + x + ids.charCodeAt(i)) | 0;
+      return 'p' + (x >>> 0).toString(36);
+    })();
+    var favs = store.get(persona + ':favs', {});
+    var notas = store.get(persona + ':notas', {});
+    var consulta = store.get(persona + ':consulta', []).filter(function (id) { return byId[id]; });
     var conResumen = store.get('consulta-resumen', true);
 
     // Qué hay de nuevo: contra la descarga anterior de la misma historia
@@ -437,9 +449,9 @@
     var nRepetidos = Object.keys(repetidos).length;
 
     function guardarSeguimiento() {
-      store.set('favs', favs);
-      store.set('notas', notas);
-      store.set('consulta', consulta);
+      store.set(persona + ':favs', favs);
+      store.set(persona + ':notas', notas);
+      store.set(persona + ':consulta', consulta);
       store.set('consulta-resumen', conResumen);
     }
     var totals = data.totals || {};
@@ -473,7 +485,9 @@
       return vocab;
     }
 
-    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1, siglas: 1, consulta: 1 };
+    var PANELES = { vacunas: 1, diagnosticos: 1, medicamentos: 1, equipo: 1, siglas: 1, consulta: 1, ips: 1 };
+    var ips = null;
+    var ipsError = '';
     function enPanel() { return PANELES[state.view] && !state.sel; }
 
     /** Variantes de la búsqueda con sinónimos (HTA ↔ hipertensión arterial). */
@@ -487,6 +501,15 @@
       return [].concat.apply([], variantes()).filter(function (t) { return !vistos[t] && (vistos[t] = true); });
     }
     function filtered() { return Boolean(state.q || state.cat || state.year || state.prest || state.esp || state.fav || state.nuevos || state.ocultarRep); }
+
+    /** ¿El documento contiene todos los términos de alguna variante de la búsqueda? */
+    function coincide(d, vs) {
+      return vs.some(function (ts) {
+        var hay = notas[d.id] ? d._hay + ' \n ' + norm(notas[d.id]) : d._hay;
+        for (var i = 0; i < ts.length; i++) if (hay.indexOf(ts[i]) === -1) return false;
+        return true;
+      });
+    }
 
     function filtrar() {
       var vs = variantes();
@@ -502,11 +525,7 @@
         if (state.nuevos && !nuevos.ids[d.id]) return false;
         if (state.ocultarRep && repetidos[d.id]) return false;
         if (!vs.length) return true;
-        return vs.some(function (ts) {
-          var hay = notas[d.id] ? d._hay + ' \n ' + norm(notas[d.id]) : d._hay;
-          for (var i = 0; i < ts.length; i++) if (hay.indexOf(ts[i]) === -1) return false;
-          return true;
-        });
+        return coincide(d, vs);
       });
       visible.sort(function (a, b) {
         var c = (a.fecha || '').localeCompare(b.fecha || '') || a._i - b._i;
@@ -593,6 +612,16 @@
               h('div', { class: 'nav-sub', text: 'Plataforma IPS' })
             ])
           ]),
+          opts.personas && opts.personas.length > 1 ? h('label', { class: 'personas' }, [
+            ico('users', 14),
+            h('span', { class: 'visually-hidden', text: 'Historia de' }),
+            (function () {
+              var sel = h('select', { 'aria-label': 'Historia de', onchange: function () { opts.onPersona(+sel.value); } },
+                opts.personas.map(function (p, i) { return h('option', { value: String(i), text: p.nombre }); }));
+              opts.personas.forEach(function (p, i) { if (p.actual) sel.value = String(i); });
+              return sel;
+            })()
+          ]) : null,
           h('div', { class: 'nav-meta' }, [
             h('div', { class: 'nav-meta-date', text: 'Descargada ' + fechaCorta((data.exportedAt || '').slice(0, 10)) }),
             h('div', { class: 'nav-meta-gen', text: plural(docs.length, 'documento', 'documentos') + ' · ' + periodo })
@@ -609,6 +638,12 @@
               function () { go({ view: 'list', cat: '', prest: '', esp: '' }); })
           ]),
           h('div', { class: 'nav-group' }, [
+            groupLabel('Plataforma IPS'),
+            navLink('Mi Resumen del Paciente', 'ips', null,
+              function () { return state.view === 'ips' && !state.sel; },
+              function () { go({ view: 'ips' }, null); })
+          ]),
+          h('div', { class: 'nav-group' }, [
             groupLabel('Mi seguimiento'),
             navLink('Llevar a la consulta', 'print', function () { return consulta.length; },
               function () { return state.view === 'consulta' && !state.sel; },
@@ -616,7 +651,7 @@
             navLink('Favoritos', 'star', function () { return Object.keys(favs).length; },
               function () { return state.view === 'list' && state.fav; },
               function () { go({ view: 'list', fav: true, nuevos: false, cat: '', prest: '', esp: '' }); }),
-            nuevos.desde ? navLink('Nuevos', 'sparkle', nuevos.n,
+            nuevos.desde && nuevos.n ? navLink('Nuevos', 'sparkle', nuevos.n,
               function () { return state.view === 'list' && state.nuevos; },
               function () { go({ view: 'list', nuevos: true, fav: false, cat: '', prest: '', esp: '' }); }) : null
           ]),
@@ -662,7 +697,7 @@
           ]),
           h('div', { class: 'offline' }, [ico('shield', 16), h('span', { text: opts.offlineText || 'Funciona sin internet. Nada sale de esta carpeta.' })]),
           opts.onReopen ? h('button', { class: 'nav-link nav-reopen', type: 'button', onclick: opts.onReopen },
-            [h('span', { class: 'ni' }, [ico('file', 16)]), 'Abrir otro ZIP']) : null,
+            [h('span', { class: 'ni' }, [ico('file', 16)]), opts.reopenLabel || 'Abrir otro ZIP']) : null,
           origin('origin-dark', data)
         ])
       ]);
@@ -798,6 +833,8 @@
       medicamentos: { titulo: 'Mis medicamentos', icono: 'pill', fg: '#166534', bg: '#e6f5ee' },
       equipo: { titulo: 'Mis médicos y prestadores', icono: 'especialidad', fg: '#0F4675', bg: '#E8F1F9' },
       siglas: { titulo: 'Siglas de tu historia', icono: 'abc', fg: '#3D2A94', bg: '#EEEAFB' },
+      ips: { titulo: 'Mi Resumen del Paciente (IPS)', icono: 'ips', fg: '#3D2A94', bg: '#EEEAFB',
+        desc: 'Lo generó la Plataforma IPS con inteligencia artificial a partir de tu historia. Puede tener errores: verificá cada dato en tus documentos.' },
       consulta: { titulo: 'Llevar a la consulta', icono: 'print', fg: '#0F4675', bg: '#E8F1F9',
         desc: 'Los documentos que elegiste, juntos en un solo documento para imprimir o guardar como PDF.' }
     };
@@ -952,6 +989,89 @@
       ]);
     }
 
+    // ---- Mi Resumen del Paciente (IPS) -------------------------------------
+
+    var ipsInput = h('input', { type: 'file', accept: '.json,application/json,application/fhir+json', class: 'visually-hidden', 'aria-hidden': 'true' });
+    ipsInput.addEventListener('change', function () {
+      var f = ipsInput.files && ipsInput.files[0];
+      ipsInput.value = '';
+      if (f) cargarIpsArchivo(f);
+    });
+
+    function abrirIps() { ipsInput.click(); }
+
+    /** Fechas del IPS, que pueden ser parciales: "2019" o "2019-03". */
+    function fechaIps(f) {
+      if (/^\d{4}-\d{2}-\d{2}/.test(f)) return fechaCorta(f);
+      var m = /^(\d{4})-(\d{2})$/.exec(f);
+      if (m) return m[2] + '/' + m[1];
+      return /^\d{4}$/.test(f) ? f : '';
+    }
+
+    function cargarIpsArchivo(f) {
+      var r = new FileReader();
+      r.onload = function () {
+        try { cargarIps(JSON.parse(String(r.result))); } catch (e) {
+          ipsError = e instanceof SyntaxError ? 'El archivo no es un JSON válido. Elegí el ips-fhir.json que descargaste de la Plataforma IPS.' : (e.message || String(e));
+          go({ view: 'ips' }, null);
+        }
+      };
+      r.onerror = function () { ipsError = 'No se pudo leer el archivo.'; go({ view: 'ips' }, null); };
+      r.readAsText(f);
+    }
+
+    function cargarIps(bundle) {
+      ipsError = '';
+      ips = window.HCDIps.leer(bundle);
+      go({ view: 'ips' }, null);
+    }
+
+    /** Palabras clave de un ítem del IPS para buscarlo en la historia (las dos primeras significativas). */
+    var VACIAS = { de: 1, del: 1, la: 1, las: 1, los: 1, el: 1, en: 1, con: 1, sin: 1, por: 1, para: 1, tipo: 1, mg: 1, comprimido: 1, comprimidos: 1 };
+    function claves(nombre) {
+      return norm(nombre).replace(/[^a-z0-9ñ ]+/g, ' ').split(/\s+/)
+        .filter(function (w) { return w.length >= 4 && !VACIAS[w] && !/^\d/.test(w); }).slice(0, 2).join(' ');
+    }
+
+    function panelIps() {
+      if (!ips) {
+        return h('div', null, [
+          ipsError ? h('div', { class: 'consulta-aviso', text: ipsError }) : null,
+          h('p', { class: 'panel-note', text: 'Si participaste en el estudio de la Plataforma IPS, podés descargar tu Resumen del Paciente en formato FHIR («Descargar FHIR», archivo ips-fhir.json) y abrirlo acá para verlo junto a tu historia.' }),
+          h('button', { class: 'btn primary', type: 'button', onclick: abrirIps }, [ico('ips', 15), 'Abrir mi IPS (ips-fhir.json)']),
+          h('p', { class: 'nota-hint', text: 'El archivo se lee en este navegador y no se guarda.' })
+        ]);
+      }
+      return h('div', null, [
+        h('div', { class: 'ips-meta' }, [
+          h('b', { text: ips.titulo }),
+          h('span', { text: [ips.fecha ? 'Generado el ' + fechaCorta(ips.fecha) : '', ips.autor].filter(Boolean).join(' · ') }),
+          h('button', { class: 'linkbtn', type: 'button', text: 'Abrir otro', onclick: abrirIps })
+        ]),
+        h('div', { class: 'ips-secs' }, ips.secciones.map(function (sec) {
+          return h('section', { class: 'vac-card' }, [
+            h('div', { class: 'vac-head ips-head' }, [h('h3', { text: sec.titulo }), h('span', { class: 'tag', text: String(sec.items.length) })]),
+            sec.items.length ? h('ul', { class: 'ips-items' }, sec.items.map(function (it) {
+              var q = claves(it.nombre);
+              var n = q ? docs.filter(function (d) { return coincide(d, G ? G.variantes(q) : [q.split(' ')]); }).length : 0;
+              return h('li', null, [
+                h('div', { class: 'ips-item-main' }, [
+                  conSiglas('span', 'item-label', it.nombre),
+                  it.fecha ? h('span', { class: 'mono', text: fechaIps(it.fecha) }) : null,
+                  it.estado ? tag(it.estado) : null
+                ]),
+                it.detalle.length ? h('div', { class: 'ips-item-det', text: it.detalle.join(' · ') }) : null,
+                n ? h('button', { class: 'linkbtn ips-link', type: 'button',
+                  text: 'En tu historia: ' + plural(n, 'documento', 'documentos'),
+                  onclick: function () { searchInput.value = q; go({ view: 'list', q: q, cat: '', prest: '', esp: '', year: '', fav: false, nuevos: false }); } })
+                  : h('span', { class: 'ips-none', text: 'No se encontró en el texto de tu historia' })
+              ]);
+            })) : h('div', { class: 'empty', text: 'Sin datos en esta sección.' })
+          ]);
+        }))
+      ]);
+    }
+
     function docsConsulta() {
       return consulta.map(function (id) { return byId[id]; }).filter(Boolean)
         .sort(function (a, b) { return (a.fecha || '').localeCompare(b.fecha || '') || a._i - b._i; });
@@ -1035,6 +1155,7 @@
       else if (state.view === 'medicamentos') { cuerpo = panelItems(medicamentos, 'Tus documentos no traen medicamentos indicados en un formato que el visor pueda leer.'); badge = medicamentos.length; }
       else if (state.view === 'siglas') { cuerpo = panelSiglas(); badge = plural(siglas.length, 'sigla', 'siglas'); }
       else if (state.view === 'consulta') { cuerpo = panelConsulta(); badge = plural(consulta.length, 'documento', 'documentos'); }
+      else if (state.view === 'ips') { cuerpo = panelIps(); badge = ips ? plural(ips.secciones.length, 'sección', 'secciones') : '—'; }
       else { cuerpo = panelEquipo(); badge = plural(profesionales.length, 'profesional', 'profesionales'); }
       panelEl.appendChild(h('div', { class: 'resumen-inner' }, [
         h('button', { class: 'linkbtn panel-back', type: 'button', onclick: function () { go({ view: 'resumen' }, null); } }, ['← Resumen']),
@@ -1443,8 +1564,10 @@
     }
     window.addEventListener('popstate', onNav);
     window.addEventListener('hashchange', onNav);
+    root.appendChild(ipsInput);
 
-    document.addEventListener('keydown', function (ev) {
+    document.addEventListener('keydown', onKey);
+    function onKey(ev) {
       var tag = (ev.target && ev.target.tagName) || '';
       var typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
       if (ev.key === '/' && !typing) {
@@ -1456,7 +1579,19 @@
       if (typing || ev.altKey || ev.ctrlKey || ev.metaKey) return;
       if (ev.key === 'ArrowDown' || ev.key === 'j') { ev.preventDefault(); if (state.view === 'resumen') state.view = 'list'; move(1); }
       else if (ev.key === 'ArrowUp' || ev.key === 'k') { ev.preventDefault(); move(-1); }
-    });
+    }
+
+    // API para el cargador (visor suelto): desmontar al cambiar de persona y cargar un IPS.
+    return {
+      destroy: function () {
+        callar();
+        window.removeEventListener('popstate', onNav);
+        window.removeEventListener('hashchange', onNav);
+        document.removeEventListener('keydown', onKey);
+        root.textContent = '';
+      },
+      cargarIps: cargarIps
+    };
   }
 
   window.HCDViewer = { start: start, h: h, ico: ico, origin: origin };

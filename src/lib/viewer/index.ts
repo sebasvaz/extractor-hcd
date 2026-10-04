@@ -35,6 +35,7 @@ import viewerLoaderJs from './viewer-loader.js?raw';
 import viewerDossierJs from './viewer-dossier.js?raw';
 import viewerExtractJs from './viewer-extract.js?raw';
 import viewerGlossaryJs from './viewer-glossary.js?raw';
+import viewerIpsJs from './viewer-ips.js?raw';
 import viewerNormalizeJs from './viewer-normalize.js?raw';
 
 /** Versión del visor (la de la extensión que lo generó). */
@@ -140,6 +141,9 @@ ${viewerGlossaryJs}
 ${viewerDossierJs}
 </script>
 <script>
+${viewerIpsJs}
+</script>
+<script>
 ${viewerNormalizeJs}
 </script>
 <script>
@@ -174,6 +178,9 @@ ${viewerGlossaryJs}
 </script>
 <script>
 ${viewerDossierJs}
+</script>
+<script>
+${viewerIpsJs}
 </script>
 <script>
 ${viewerNormalizeJs}

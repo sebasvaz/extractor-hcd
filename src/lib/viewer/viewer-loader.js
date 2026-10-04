@@ -18,6 +18,54 @@
   var root = document.getElementById('app');
   var urls = [];
 
+  // Varias historias a la vez (por ejemplo, la familia de quien cuida). Cada una
+  // guarda su índice original (JSON) para volver a montar el visor al cambiar.
+  var historias = [];
+  var actual = -1;
+  var visor = null;
+
+  /** Nombre para el selector: el del titular o, si es anónimo, el del archivo. */
+  function nombreDe(file, data, n) {
+    if (data.patientName) return data.patientName;
+    var base = (file.name || '').replace(/\.zip$/i, '').replace(/^hcd_export_/i, '').replace(/^paciente_?/i, '')
+      .replace(/\d{4}-\d{2}-\d{2}(_\d{4})?/g, '').replace(/[_\s-]+/g, ' ').replace(/\(|\)/g, '').trim();
+    return base || 'Historia ' + n;
+  }
+
+  function opciones(hx) {
+    return {
+      source: function (d) {
+        if (d.pdf) return { frame: { src: d.pdf }, href: d.pdf, label: d.file.replace(/\.html$/, '.pdf') };
+        var html = hx.htmlById[d.id] || '';
+        var url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+        urls.push(url);
+        // sandbox vacío: el HTML del portal no ejecuta scripts ni navega.
+        return { frame: { sandbox: '' }, srcdoc: html, href: url, label: d.file };
+      },
+      hint: null,
+      offlineText: 'Funciona sin internet. El ZIP no sale de tu computadora.',
+      reopenLabel: 'Agregar otra historia',
+      onReopen: pantallaCarga,
+      personas: historias.map(function (x, j) { return { nombre: x.nombre, actual: j === actual }; }),
+      onPersona: mostrar
+    };
+  }
+
+  function mostrar(i) {
+    if (visor) visor.destroy();
+    actual = i;
+    history.replaceState(null, '', location.pathname + location.search);
+    root.textContent = '';
+    visor = V.start(root, JSON.parse(historias[i].original), opciones(historias[i]));
+  }
+
+  function pantallaCarga() {
+    if (visor) visor.destroy();
+    visor = null;
+    root.textContent = '';
+    root.appendChild(loader());
+  }
+
   // ---- Lectura del ZIP ---------------------------------------------------
 
   /** Encuentra metadata.json aunque el ZIP se haya vuelto a comprimir dentro de una carpeta. */
@@ -117,6 +165,7 @@
   // ---- Pantalla de carga ------------------------------------------------
 
   var statusEl, dropEl, inputEl;
+  var dragListo = false;
 
   function setStatus(kind, text) {
     statusEl.className = 'load-status' + (kind ? ' ' + kind : '');
@@ -137,23 +186,8 @@
     openZip(file, function (done, total) {
       setStatus('busy', 'Leyendo documento ' + done + ' de ' + total + '…');
     }).then(function (res) {
-      root.textContent = '';
-      V.start(root, res.data, {
-        source: function (d) {
-          if (d.pdf) return { frame: { src: d.pdf }, href: d.pdf, label: d.file.replace(/\.html$/, '.pdf') };
-          var html = res.htmlById[d.id] || '';
-          var url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
-          urls.push(url);
-          // sandbox vacío: el HTML del portal no ejecuta scripts ni navega.
-          return { frame: { sandbox: '' }, srcdoc: html, href: url, label: d.file };
-        },
-        hint: null,
-        offlineText: 'Funciona sin internet. El ZIP no sale de tu computadora.',
-        onReopen: function () {
-          urls.forEach(function (u) { URL.revokeObjectURL(u); });
-          location.replace(location.pathname + location.search);
-        }
-      });
+      historias.push({ nombre: nombreDe(file, res.data, historias.length + 1), original: JSON.stringify(res.data), htmlById: res.htmlById });
+      mostrar(historias.length - 1);
     }).catch(function (err) {
       dropEl.removeAttribute('aria-busy');
       var msg = err && err.message ? err.message : String(err);
@@ -186,8 +220,11 @@
       handle(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]);
     });
     // Soltar el archivo fuera del recuadro no debe hacer que el navegador lo abra.
-    window.addEventListener('dragover', function (e) { e.preventDefault(); });
-    window.addEventListener('drop', function (e) { e.preventDefault(); });
+    if (!dragListo) {
+      window.addEventListener('dragover', function (e) { e.preventDefault(); });
+      window.addEventListener('drop', function (e) { e.preventDefault(); });
+      dragListo = true;
+    }
 
     statusEl = h('div', { class: 'load-status', role: 'status', 'aria-live': 'polite' });
     statusEl.hidden = true;
@@ -201,8 +238,14 @@
         ])
       ]),
       h('div', { class: 'load-body' }, [
-        h('h1', { text: 'Abrí tu historia clínica' }),
-        h('p', { text: 'Elegí el ZIP que descargaste con la extensión Extractor de HCD. No hace falta descomprimirlo.' }),
+        h('h1', { text: historias.length ? 'Agregar otra historia' : 'Abrí tu historia clínica' }),
+        h('p', { text: historias.length
+          ? 'Elegí el ZIP de otra persona (por ejemplo, de tu familia). Vas a poder pasar de una historia a otra desde la barra lateral.'
+          : 'Elegí el ZIP que descargaste con la extensión Extractor de HCD. No hace falta descomprimirlo.' }),
+        historias.length ? h('div', { class: 'abiertas' }, [h('span', { class: 'caption', text: 'Historias abiertas' })]
+          .concat(historias.map(function (x, j) {
+            return h('button', { class: 'chip', type: 'button', onclick: function () { mostrar(j); } }, [ico('users', 13), x.nombre]);
+          }))) : null,
         dropEl,
         statusEl,
         h('div', { class: 'load-note' }, [ico('shield', 16), h('span', {
