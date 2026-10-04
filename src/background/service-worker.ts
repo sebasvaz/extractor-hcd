@@ -658,6 +658,7 @@ function buildZipArgsFromRun(fallbackStartedAt: string): import('@lib/zip-builde
     errors: run.errors,
     log: log.snapshot(),
     startedAt: run.startedAt || fallbackStartedAt,
+    extensionVersion: chrome.runtime.getManifest().version,
   };
   if (run.anonymizer !== null) {
     base.anonymized = true;

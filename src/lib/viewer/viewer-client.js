@@ -27,8 +27,13 @@
     'Urgencia y emergencia': { icon: 'urgencia', fg: '#991b1b', bg: '#fdecea' },
     'Procedimientos médicos': { icon: 'procedimientos', fg: '#1e4f9c', bg: '#ede9fe' },
     'Procedimientos quirúrgicos': { icon: 'quirurgicos', fg: '#1e4f9c', bg: '#ede9fe' },
-    'Teleconsulta': { icon: 'teleconsulta', fg: '#374151', bg: '#f4f7fb' }
+    'Teleconsulta': { icon: 'teleconsulta', fg: '#374151', bg: '#f4f7fb' },
+    'Otros': { icon: 'otros', fg: '#475569', bg: '#eef2f7' }
   };
+
+  /** Origen del visor: el proyecto Plataforma IPS y la extensión que generó el ZIP. */
+  var PLATFORM_URL = 'https://proyectoips.vz-labs.com/participar';
+  var REPO_URL = 'https://github.com/sebasvaz/extractor-hcd';
   var CAT_OTRA = { icon: 'file', fg: '#374151', bg: '#f4f7fb' };
 
   var ICONS = {
@@ -53,7 +58,9 @@
     calendar: '<rect x="3" y="4.5" width="14" height="12.5" rx="1.5"/><path d="M3 8h14M7 3v3M13 3v3"/>',
     back: '<path d="M16 10H4M8.5 5.5 4 10l4.5 4.5"/>',
     filter: '<path d="M3 5h14M6 10h8M8.5 15h3"/>',
-    close: '<path d="m5 5 10 10M15 5 5 15"/>'
+    close: '<path d="m5 5 10 10M15 5 5 15"/>',
+    otros: '<path d="M3 6a1.5 1.5 0 0 1 1.5-1.5h3.2l1.6 2h6.2A1.5 1.5 0 0 1 17 8v6.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 3 14.5z"/>',
+    especialidad: '<circle cx="10" cy="6.5" r="3"/><path d="M4.5 17a5.5 5.5 0 0 1 11 0"/>'
   };
 
   // ---- Utilidades ------------------------------------------------------
@@ -166,7 +173,31 @@
     return p ? pad(p.d) + '/' + pad(p.m) + '/' + p.y : 'Sin fecha';
   }
   function plural(n, uno, varios) { return n + ' ' + (n === 1 ? uno : varios); }
-  function titulo(d) { return d.descripcion || d.categoria || 'Documento'; }
+  function titulo(d) { return d.titulo || d.descripcion || d.categoria || 'Documento'; }
+  function fechaHora(d) { return fechaCorta(d.fecha) + (d.hora ? ' ' + d.hora : ''); }
+
+  /**
+   * Bloque de origen: de dónde sale este visor y a dónde ir para saber más.
+   * `info`: { extensionVersion, viewerVersion, exportId }.
+   */
+  function origin(cls, info) {
+    info = info || {};
+    var versiones = [
+      info.extensionVersion ? 'Extractor de HCD v' + info.extensionVersion : 'Extractor de HCD',
+      info.viewerVersion ? 'visor v' + info.viewerVersion : null
+    ].filter(Boolean).join(' · ');
+    return h('div', { class: 'origin ' + (cls || '') }, [
+      h('div', { class: 'origin-text' }, [
+        'Generado con el ',
+        h('a', { href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Extractor de HCD' }),
+        ', parte del proyecto ',
+        h('a', { href: PLATFORM_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Plataforma IPS' }),
+        ' (Universidad ORT Uruguay).'
+      ]),
+      h('div', { class: 'origin-meta', text: versiones }),
+      info.exportId ? h('div', { class: 'origin-meta', title: 'Identificador de esta descarga', text: 'Descarga ' + String(info.exportId).slice(0, 8) }) : null
+    ]);
+  }
 
   /**
    * Arma el visor en `root` a partir del índice `data` (shape de
@@ -195,11 +226,15 @@
 
     // ---- Índice ----------------------------------------------------------
 
+    var N = window.HCDNormalize;
     var docs = data.documents.map(function (d, i) {
+      if (N) N.normalizeDoc(d);
       d._i = i;
-      d._hay = norm([d.categoria, d.descripcion, d.prestador, d.profesional, fechaCorta(d.fecha), d.text].join(' \n '));
+      d._hay = norm([d.categoria, d.titulo, d.descripcion, d.especialidad, d.tipo, d.prestador, d.prestadorNombre,
+        d.profesional, fechaCorta(d.fecha), d.text].join(' \n '));
       return d;
     });
+    if (N) N.unifyPrestadores(docs);
     var byId = {};
     docs.forEach(function (d) { byId[d.id] = d; });
     var porFecha = docs.slice().sort(function (a, b) {
@@ -218,23 +253,25 @@
     var catCount = countBy(function (d) { return d.categoria; });
     var yearCount = countBy(function (d) { var p = parseFecha(d.fecha); return p ? String(p.y) : null; });
     var prestCount = countBy(function (d) { return d.prestador; });
+    var espCount = countBy(function (d) { return d.especialidad; });
     var cats = byCount(catCount);
     var prests = byCount(prestCount);
+    var esps = byCount(espCount);
     var years = Object.keys(yearCount).sort().reverse();
     var conFecha = porFecha.filter(function (d) { return parseFecha(d.fecha); });
     var periodo = conFecha.length
       ? parseFecha(conFecha[conFecha.length - 1].fecha).y + '–' + parseFecha(conFecha[0].fecha).y
       : '—';
-    var errors = data.errors || [];
+    var errors = (data.errors || []).map(function (e) { return N ? N.normalizeError(e) : e; });
     var totals = data.totals || {};
 
     // ---- Estado ----------------------------------------------------------
 
-    var state = { view: 'resumen', q: '', cat: '', year: '', prest: '', asc: false, sel: null, filters: false };
+    var state = { view: 'resumen', q: '', cat: '', year: '', prest: '', esp: '', asc: false, sel: null, filters: false };
     var visible = [];
 
     function terms() { return norm(state.q).split(/\s+/).filter(Boolean); }
-    function filtered() { return Boolean(state.q || state.cat || state.year || state.prest); }
+    function filtered() { return Boolean(state.q || state.cat || state.year || state.prest || state.esp); }
 
     function filtrar() {
       var ts = terms();
@@ -245,6 +282,7 @@
           if (!p || String(p.y) !== state.year) return false;
         }
         if (state.prest && d.prestador !== state.prest) return false;
+        if (state.esp && d.especialidad !== state.esp) return false;
         for (var i = 0; i < ts.length; i++) if (d._hay.indexOf(ts[i]) === -1) return false;
         return true;
       });
@@ -256,8 +294,8 @@
 
     // ---- Piezas ----------------------------------------------------------
 
-    function tag(text, cls, icon) {
-      return h('span', { class: 'tag' + (cls ? ' ' + cls : '') }, [icon ? ico(icon, 11) : null, text]);
+    function tag(text, cls, icon, title) {
+      return h('span', { class: 'tag' + (cls ? ' ' + cls : ''), title: title || null }, [icon ? ico(icon, 11) : null, text]);
     }
 
     function secIcon(c, small) {
@@ -277,14 +315,14 @@
     }
 
     function tlItem(d, ts, onclick) {
-      var sub = [d.prestador, d.profesional].filter(Boolean).join(' · ');
+      var sub = [d.tipo && d.tipo !== titulo(d) ? d.tipo : null, d.prestador, d.profesional].filter(Boolean).join(' · ');
       var snip = ts ? snippet(d.text, ts) : null;
       return h('button', {
         class: 'tl-item', type: 'button', 'data-id': d.id, style: catVars(d.categoria),
         'aria-current': state.sel === d.id ? 'true' : 'false', onclick: onclick
       }, [
         h('div', { class: 'tl-meta' }, [
-          h('span', { class: 'mono', text: fechaCorta(d.fecha) }),
+          h('span', { class: 'mono', text: fechaHora(d) }),
           h('span', { class: 'dot-sep', text: '·' }),
           h('span', { class: 'tl-cat' }, [ico(catMeta(d.categoria).icon, 12), d.categoria])
         ]),
@@ -315,7 +353,7 @@
             h('div', { class: 'logo', text: 'HC' }),
             h('div', null, [
               h('div', { class: 'nav-name', text: 'Mi historia clínica' }),
-              h('div', { class: 'nav-sub', text: 'Copia local · Mi HCD' })
+              h('div', { class: 'nav-sub', text: 'Plataforma IPS' })
             ])
           ]),
           h('div', { class: 'nav-meta' }, [
@@ -328,26 +366,32 @@
             groupLabel('Inicio'),
             navLink('Resumen', 'home', null,
               function () { return state.view === 'resumen' && !state.sel; },
-              function () { go({ view: 'resumen', cat: '', prest: '', year: '', q: '' }, null); }),
+              function () { go({ view: 'resumen', cat: '', prest: '', esp: '', year: '', q: '' }, null); }),
             navLink('Todos los documentos', 'file', docs.length,
-              function () { return state.view === 'list' && !state.cat && !state.prest; },
-              function () { go({ view: 'list', cat: '', prest: '' }); })
+              function () { return state.view === 'list' && !state.cat && !state.prest && !state.esp; },
+              function () { go({ view: 'list', cat: '', prest: '', esp: '' }); })
           ]),
           h('div', { class: 'nav-group' }, [groupLabel('Categorías')].concat(cats.map(function (c) {
             return navLink(c, catMeta(c).icon, catCount[c],
               function () { return state.view === 'list' && state.cat === c; },
-              function () { go({ view: 'list', cat: c, prest: '' }); });
+              function () { go({ view: 'list', cat: c, prest: '', esp: '' }); });
           }))),
+          esps.length ? h('div', { class: 'nav-group' }, [groupLabel('Especialidades')].concat(esps.slice(0, 8).map(function (e) {
+            return navLink(e, 'especialidad', espCount[e],
+              function () { return state.view === 'list' && state.esp === e; },
+              function () { go({ view: 'list', esp: e, cat: '', prest: '' }); });
+          }))) : null,
           prests.length ? h('div', { class: 'nav-group' }, [groupLabel('Prestadores')].concat(prests.map(function (p) {
             return navLink(p, 'building', prestCount[p],
               function () { return state.view === 'list' && state.prest === p; },
-              function () { go({ view: 'list', prest: p, cat: '' }); });
+              function () { go({ view: 'list', prest: p, cat: '', esp: '' }); });
           }))) : null
         ]),
         h('div', { class: 'nav-foot' }, [
           h('div', { class: 'offline' }, [ico('shield', 16), h('span', { text: opts.offlineText || 'Funciona sin internet. Nada sale de esta carpeta.' })]),
           opts.onReopen ? h('button', { class: 'nav-link nav-reopen', type: 'button', onclick: opts.onReopen },
-            [h('span', { class: 'ni' }, [ico('file', 16)]), 'Abrir otro ZIP']) : null
+            [h('span', { class: 'ni' }, [ico('file', 16)]), 'Abrir otro ZIP']) : null,
+          origin('origin-dark', data)
         ])
       ]);
     }
@@ -360,7 +404,7 @@
       var pct = expected ? Math.round((docs.length / expected) * 100) : 100;
 
       var bigInput = h('input', {
-        type: 'search', placeholder: 'Buscar en toda la historia: hemoglobina, ASSE, vacuna…',
+        type: 'search', placeholder: 'Buscar en toda la historia: hemoglobina, urología, vacuna…',
         'aria-label': 'Buscar en toda la historia', autocomplete: 'off', spellcheck: 'false'
       });
       bigInput.addEventListener('input', function () {
@@ -378,14 +422,16 @@
 
       return h('div', { class: 'resumen' }, [h('div', { class: 'resumen-inner' }, [
         h('section', { class: 'hero' }, [
-          h('div', { class: 'hero-tag' }, [ico('shield', 12), data.anonymized ? 'Copia local · paquete anonimizado' : 'Copia local']),
+          h('div', { class: 'hero-tag' }, [ico('shield', 12), data.anonymized ? 'Copia local de Mi HCD · paquete anonimizado' : 'Copia local de Mi HCD']),
           h('h1', { text: 'Tu historia clínica' }),
           h('p', { class: 'hero-sub', text: subHero }),
           h('div', { class: 'hero-chips' }, [
             chip(String(docs.length), 'Documentos'),
             chip(periodo, 'Período'),
-            chip(String(prests.length), 'Prestadores'),
-            chip(String(cats.length), 'Categorías')
+            chip(String(prests.length), prests.length === 1 ? 'Prestador' : 'Prestadores'),
+            esps.length
+              ? chip(String(esps.length), esps.length === 1 ? 'Especialidad' : 'Especialidades')
+              : chip(String(cats.length), cats.length === 1 ? 'Categoría' : 'Categorías')
           ])
         ]),
         h('div', { class: 'covbar' }, [
@@ -396,7 +442,7 @@
           h('div', { class: 'covbar-bar' }, [
             h('div', { class: 'covbar-track' }, [h('div', { class: 'covbar-fill', style: 'width:' + pct + '%' })]),
             h('div', { class: 'covbar-sub', text: errors.length
-              ? plural(errors.length, 'documento no se pudo descargar', 'documentos no se pudieron descargar') + ' · ver abajo'
+              ? plural(errors.length, 'documento no se pudo descargar', 'documentos no se pudieron descargar')
               : (docs.length < expected ? 'Descarga parcial' : 'Descarga completa') })
           ])
         ]),
@@ -405,7 +451,7 @@
           secHead(plainIcon('file', '#0F4675', '#E8F1F9'), 'Por categoría', 'Tipo de consulta o estudio, como lo clasifica Mi HCD',
             plural(cats.length, 'categoría', 'categorías')),
           h('div', { class: 'cat-grid' }, cats.map(function (c) {
-            return h('button', { class: 'cat-card', type: 'button', onclick: function () { go({ view: 'list', cat: c, prest: '' }); } }, [
+            return h('button', { class: 'cat-card', type: 'button', onclick: function () { go({ view: 'list', cat: c, prest: '', esp: '' }); } }, [
               secIcon(c, true),
               h('div', { style: 'min-width:0' }, [h('b', { text: c }), h('span', { text: plural(catCount[c], 'documento', 'documentos') })])
             ]);
@@ -419,25 +465,37 @@
             })),
             docs.length > recientes.length
               ? h('button', { class: 'see-all', type: 'button', text: 'Ver los ' + docs.length + ' documentos',
-                onclick: function () { go({ view: 'list', cat: '', prest: '' }); } })
+                onclick: function () { go({ view: 'list', cat: '', prest: '', esp: '' }); } })
               : null
           ]),
           errors.length ? h('section', { class: 'sec' }, [
-            secHead(plainIcon('warn', '#6F5400', '#FFF5D6'), 'No descargados', 'Documentos que el portal no entregó', errors.length)
-          ].concat(errors.map(function (e) {
-            return h('div', { class: 'fail' }, [
-              h('div', { class: 'fail-date', text: [e.fecha ? fechaCorta(e.fecha) : null, e.categoria].filter(Boolean).join(' · ') }),
-              h('b', { text: e.descripcion || e.categoria || 'Documento' }),
-              h('p', { text: 'Podés verlo en el portal Mi HCD o volver a ejecutar la descarga con la extensión.' })
-            ]);
-          }))) : null
+            secHead(plainIcon('warn', '#6F5400', '#FFF5D6'), 'No se pudieron descargar', 'El portal no entregó estos documentos', errors.length),
+            h('details', { class: 'fails' }, [
+              h('summary', { text: 'Ver ' + plural(errors.length, 'documento', 'documentos') }),
+              h('ul', null, errors.map(function (e) {
+                return h('li', null, [
+                  h('span', { class: 'mono', text: e.fecha ? fechaCorta(e.fecha) : 'Sin fecha' }),
+                  ' · ' + [e.categoria, e.prestador, e.descripcion].filter(Boolean).join(' · ')
+                ]);
+              }))
+            ]),
+            h('p', { class: 'fails-note', text: 'Podés verlos en el portal Mi HCD o volver a ejecutar la descarga con la extensión.' })
+          ]) : null
+        ]),
+        h('section', { class: 'ips-cta' }, [
+          h('div', { class: 'logo', text: 'IPS' }),
+          h('div', { class: 'ips-cta-text' }, [
+            h('b', { text: 'Este visor es parte del proyecto Plataforma IPS' }),
+            h('span', { text: 'Un proyecto de investigación de la Universidad ORT Uruguay que genera, a partir de la historia clínica, un Resumen Internacional del Paciente (IPS) con inteligencia artificial.' })
+          ]),
+          h('a', { class: 'btn', href: PLATFORM_URL, target: '_blank', rel: 'noopener noreferrer' }, [ico('external', 15), 'Conocer el proyecto'])
         ])
       ])]);
     }
 
     // ---- Barra de búsqueda, filtros y lista -------------------------------
 
-    var searchInput, resumenSearch, yearSel, prestSel, chipsEl, listEl, resultsHead, docEl, mtopEl, appEl;
+    var searchInput, resumenSearch, yearSel, prestSel, espSel, chipsEl, listEl, resultsHead, docEl, mtopEl, appEl;
 
     function toolbar() {
       searchInput = h('input', {
@@ -465,9 +523,15 @@
           return h('option', { value: p, text: p + ' (' + prestCount[p] + ')' });
         })));
 
+      espSel = h('select', { 'aria-label': 'Especialidad', onchange: function () { go({ view: 'list', esp: espSel.value }); } },
+        [h('option', { value: '', text: 'Todas' })].concat(esps.slice().sort(function (a, b) { return a.localeCompare(b); }).map(function (e) {
+          return h('option', { value: e, text: e + ' (' + espCount[e] + ')' });
+        })));
+
       return h('div', { class: 'toolbar' }, [
         h('label', { class: 'search' }, [ico('search', 16), searchInput, clear, h('span', { class: 'kbd', text: '/' })]),
         h('label', { class: 'sel' }, [h('span', { text: 'Año' }), yearSel]),
+        esps.length ? h('label', { class: 'sel' }, [h('span', { text: 'Especialidad' }), espSel]) : null,
         h('label', { class: 'sel' }, [h('span', { text: 'Prestador' }), prestSel])
       ]);
     }
@@ -491,7 +555,7 @@
         : plural(docs.length, 'documento', 'documentos') }));
       resultsHead.appendChild(h('span', { style: 'display:flex;gap:12px;align-items:center' }, [
         filtered() ? h('button', { class: 'linkbtn', type: 'button', text: 'Limpiar',
-          onclick: function () { searchInput.value = ''; go({ q: '', cat: '', year: '', prest: '' }); } }) : null,
+          onclick: function () { searchInput.value = ''; go({ q: '', cat: '', year: '', prest: '', esp: '' }); } }) : null,
         h('button', { class: 'linkbtn', type: 'button', text: state.asc ? 'Más antiguos primero' : 'Más recientes primero',
           onclick: function () { go({ asc: !state.asc }); } }),
         h('button', { class: 'mfilter', type: 'button', 'aria-expanded': state.filters ? 'true' : 'false',
@@ -547,11 +611,12 @@
       docEl.appendChild(h('div', { class: 'doc-head' }, [
         secIcon(d.categoria),
         h('div', { class: 'doc-title' }, [h('div', null, [
-          h('div', { class: 'doc-kicker', text: fechaCorta(d.fecha) + ' · ' + d.categoria }),
+          h('div', { class: 'doc-kicker', text: fechaHora(d) + ' · ' + d.categoria }),
           h('h1', { text: titulo(d) }),
           h('div', { class: 'doc-tags' }, [
-            d.prestador ? tag(d.prestador, 'brand', 'building') : null,
-            d.profesional ? tag(d.profesional) : null,
+            d.tipo && d.tipo !== titulo(d) ? tag(d.tipo) : null,
+            d.prestador ? tag(d.prestador, 'brand', 'building', d.prestadorNombre) : null,
+            d.profesional ? tag(d.profesional, null, 'especialidad') : null,
             d.pdf ? tag('PDF adjunto', null, 'file') : null
           ])
         ])]),
@@ -568,7 +633,7 @@
         ])
       ]));
       docEl.appendChild(h('div', { class: 'frame-card' }, [
-        h('div', { class: 'frame-bar' }, [ico('file', 13), h('span', { text: 'Documento original del portal Mi HCD' }),
+        h('div', { class: 'frame-bar' }, [ico('file', 13), h('span', { class: 'frame-label', text: 'Documento original (Mi HCD)' }),
           h('span', { class: 'path', text: srcInfo.label })]),
         frame
       ]));
@@ -586,7 +651,7 @@
       }
       mtopEl.appendChild(h('div', { class: 'mtop-text' }, [
         h('div', { class: 'mtop-title', text: d ? titulo(d) : 'Mi historia clínica' }),
-        h('div', { class: 'mtop-sub', text: d ? fechaCorta(d.fecha) + ' · ' + d.categoria : docs.length + ' docs · ' + periodo })
+        h('div', { class: 'mtop-sub', text: d ? fechaHora(d) + ' · ' + d.categoria : docs.length + ' docs · ' + periodo })
       ]));
     }
 
@@ -603,6 +668,7 @@
       });
       yearSel.value = state.year;
       prestSel.value = state.prest;
+      espSel.value = state.esp;
       if (searchInput.value !== state.q) searchInput.value = state.q;
       searchInput._clear.hidden = !state.q;
       renderList();
@@ -669,7 +735,9 @@
         ]),
         h('footer', { class: 'foot' }, [
           h('strong', { text: 'Copia local de tu historia clínica descargada de Mi HCD.' }),
-          h('span', { class: 'long', text: ' No se actualiza sola y no reemplaza a tu médico.' })
+          h('span', { class: 'long', text: ' No se actualiza sola y no reemplaza a tu médico. ' }),
+          h('span', { class: 'long' }, ['Generado con el Extractor de HCD · ',
+            h('a', { href: PLATFORM_URL, target: '_blank', rel: 'noopener noreferrer', text: 'Plataforma IPS' })])
         ])
       ])
     ]);
@@ -703,7 +771,7 @@
     });
   }
 
-  window.HCDViewer = { start: start, h: h, ico: ico };
+  window.HCDViewer = { start: start, h: h, ico: ico, origin: origin };
 
   var embedded = document.getElementById('hcd-data');
   if (embedded) start(document.getElementById('app'), JSON.parse(embedded.textContent));

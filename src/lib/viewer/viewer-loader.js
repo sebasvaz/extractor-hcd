@@ -21,14 +21,31 @@
 
   // ---- Lectura del ZIP ---------------------------------------------------
 
-  /** Texto visible de un HTML, como `htmlToPlainText` de index.ts. */
-  function plainText(html) {
+  function clean(s) { return (s || '').replace(/[\s ]+/g, ' ').trim(); }
+
+  /**
+   * Texto visible y cabezal de un HTML, como `htmlToPlainText` y
+   * `extractCdaHeader` de index.ts. Del cabezal solo se leen título,
+   * Prestador, Profesional y Fecha del evento; nunca los datos del paciente.
+   */
+  var CDA_LABELS = { prestador: 'prestador', profesional: 'profesional', 'fecha del evento': 'fechaHora' };
+  function readHtml(html) {
     var doc = new DOMParser().parseFromString(html, 'text/html');
+    var cda = {};
+    var title = clean(doc.title);
+    if (title) cda.titulo = title;
+    Array.prototype.forEach.call(doc.querySelectorAll('td'), function (td) {
+      var key = CDA_LABELS[clean(td.textContent).toLowerCase()];
+      var next = td.nextElementSibling;
+      if (key && !cda[key] && next && next.tagName === 'TD') {
+        var v = clean(next.textContent);
+        if (v) cda[key] = v;
+      }
+    });
     Array.prototype.forEach.call(doc.querySelectorAll('script, style, noscript, template, #b64'), function (el) {
       el.remove();
     });
-    var body = doc.body ? doc.body.textContent : '';
-    return (body || '').replace(/[\s ]+/g, ' ').trim().slice(0, MAX_TEXT_CHARS);
+    return { text: clean(doc.body ? doc.body.textContent : '').slice(0, MAX_TEXT_CHARS), cda: cda };
   }
 
   /** Encuentra metadata.json aunque el ZIP se haya vuelto a comprimir dentro de una carpeta. */
@@ -86,7 +103,9 @@
         } else if (htmlEntry) {
           work = htmlEntry.async('string').then(function (html) {
             htmlById[d.id] = html;
-            out.text = plainText(html);
+            var r = readHtml(html);
+            out.text = r.text;
+            if (Object.keys(r.cda).length) out.cda = r.cda;
           });
         } else {
           work = Promise.resolve();
@@ -105,9 +124,13 @@
       var errors = (meta.errors || []).concat(missing.map(function (d) {
         return { fecha: d.fecha, categoria: d.categoria, descripcion: d.descripcion, message: 'Falta en el ZIP' };
       }));
+      var extVersion = (meta.producer && meta.producer.version) || (meta.anonymization && meta.anonymization.version) || '';
       return {
         data: {
           exportedAt: meta.exportedAt || '',
+          exportId: meta.exportId || '',
+          extensionVersion: extVersion,
+          viewerVersion: window.HCD_VIEWER_VERSION || '',
           anonymized: anonymized,
           patientName: anonymized || !name || name === 'paciente' ? null : name,
           totals: meta.totals || { expected: total, captured: total, failed: 0 },
@@ -202,7 +225,7 @@
         h('div', { class: 'logo', text: 'HC' }),
         h('div', null, [
           h('div', { class: 'nav-name', text: 'Mi historia clínica' }),
-          h('div', { class: 'nav-sub', text: 'Visor local · Mi HCD' })
+          h('div', { class: 'nav-sub', text: 'Visor local · Plataforma IPS' })
         ])
       ]),
       h('div', { class: 'load-body' }, [
@@ -212,7 +235,8 @@
         statusEl,
         h('div', { class: 'load-note' }, [ico('shield', 16), h('span', {
           text: 'El archivo se lee en este navegador y no se sube a ningún lado. Este visor funciona sin internet.'
-        })])
+        })]),
+        V.origin('load-origin', { viewerVersion: window.HCD_VIEWER_VERSION })
       ])
     ])]);
   }

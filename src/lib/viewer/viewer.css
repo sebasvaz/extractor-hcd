@@ -96,6 +96,15 @@ svg.ico { flex-shrink: 0; }
 }
 
 .nav-reopen { margin-top: 8px; }
+
+/* Origen: proyecto Plataforma IPS + extensión que generó el ZIP */
+.origin { font-size: 10.5px; line-height: 1.45; }
+.origin-meta { font-family: var(--ips-font-mono); margin-top: 3px; }
+.origin-dark { margin-top: 10px; color: #6f94b0; }
+.origin-dark a { color: #a9cde3; text-decoration: underline; text-underline-offset: 2px; }
+.origin-dark a:hover { color: #fff; }
+.load-origin { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--ips-border); color: var(--ips-ink-3); }
+.load-origin .origin-meta { color: var(--ips-ink-4); }
 .visually-hidden {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
@@ -255,6 +264,30 @@ svg.ico { flex-shrink: 0; }
   font-size: 12.5px; font-weight: 500; color: var(--ips-brand); cursor: pointer;
 }
 .see-all:hover { text-decoration: underline; }
+.fails { margin: 0; padding: 0; }
+.fails summary {
+  cursor: pointer; padding: 10px 14px; border-radius: 9px; font-size: 12.5px; font-weight: 500;
+  background: var(--ips-warn-soft); border: 1px solid var(--ips-warn-border); color: var(--ips-warn-ink);
+}
+.fails[open] summary { border-radius: 9px 9px 0 0; }
+.fails ul {
+  margin: 0; padding: 8px 14px 10px 30px; max-height: 260px; overflow-y: auto;
+  border: 1px solid var(--ips-warn-border); border-top: 0; border-radius: 0 0 9px 9px; background: var(--ips-surface);
+  font-size: 12px; color: var(--ips-ink-2);
+}
+.fails li { margin: 3px 0; }
+.fails .mono { font-family: var(--ips-font-mono); color: var(--ips-ink-3); }
+.fails-note { font-size: 12px; color: var(--ips-ink-3); margin: 8px 0 0; }
+
+.ips-cta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 4px; padding: 16px 18px;
+  border-radius: 12px; border: 1px solid var(--ips-brand-border);
+  background: linear-gradient(135deg, var(--ips-brand-soft) 0%, var(--ips-surface) 100%);
+}
+.ips-cta-text { flex: 1 1 320px; min-width: 0; }
+.ips-cta-text b { display: block; font-size: 13.5px; color: var(--ips-brand-ink); }
+.ips-cta-text span { font-size: 12.5px; color: var(--ips-ink-2); }
+
 .fail {
   margin-bottom: 8px; padding: 13px 15px; border-radius: 9px;
   background: var(--ips-warn-soft); border: 1px solid var(--ips-warn-border);
@@ -339,6 +372,7 @@ svg.ico { flex-shrink: 0; }
   display: flex; align-items: center; gap: 8px; padding: 7px 14px; font-size: 11px; color: var(--ips-ink-3);
   background: var(--ips-surface-2); border-bottom: 1px solid var(--ips-border);
 }
+.frame-label { white-space: nowrap; }
 .frame-bar .path {
   margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--ips-ink-4); font-family: var(--ips-font-mono);
