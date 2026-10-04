@@ -58,6 +58,12 @@ jobs:
           sha256sum "${{ steps.ver.outputs.zip }}" > "${{ steps.ver.outputs.zip }}.sha256"
           cat "${{ steps.ver.outputs.zip }}.sha256"
 
+      - name: Build visor suelto (visor-hc.html)
+        run: |
+          npm run build:visor -- .
+          sha256sum visor-hc.html > visor-hc.html.sha256
+          cat visor-hc.html.sha256
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -73,6 +79,11 @@ jobs:
             4. Abrí `chrome://extensions`, activá "Modo desarrollador".
             5. "Cargar extensión sin empaquetar" → carpeta descomprimida.
 
+            ## Visor para ZIPs descargados con versiones anteriores
+            Los ZIP nuevos traen `visor.html`. Para leer un ZIP descargado
+            antes, bajá `visor-hc.html`, abrilo con doble click y elegí el
+            ZIP: se lee en el navegador, sin internet y sin subirlo a ningún lado.
+
             Ver `README.md` y `PRIVACY.md` para la descripción completa, los
             permisos requeridos y la base legal (art. 14 Ley N° 18.331).
           draft: false
@@ -80,3 +91,5 @@ jobs:
           files: |
             ${{ steps.ver.outputs.zip }}
             ${{ steps.ver.outputs.zip }}.sha256
+            visor-hc.html
+            visor-hc.html.sha256

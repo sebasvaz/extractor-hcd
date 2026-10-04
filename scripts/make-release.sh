@@ -59,19 +59,25 @@ echo "==> Empaquetando ZIP..."
   zip -r -9 "${ZIP_PATH}" . >/dev/null
 )
 
+echo "==> Visor suelto (visor-hc.html)..."
+npm run build:visor -- "${RELEASE_DIR}"
+
 echo "==> Calculando SHA-256..."
 if command -v sha256sum >/dev/null; then
-  (cd "${RELEASE_DIR}" && sha256sum "${ZIP_NAME}") > "${ZIP_PATH}.sha256"
+  SHA="sha256sum"
 else
   # macOS
-  (cd "${RELEASE_DIR}" && shasum -a 256 "${ZIP_NAME}") > "${ZIP_PATH}.sha256"
+  SHA="shasum -a 256"
 fi
+(cd "${RELEASE_DIR}" && $SHA "${ZIP_NAME}") > "${ZIP_PATH}.sha256"
+(cd "${RELEASE_DIR}" && $SHA visor-hc.html) > "${RELEASE_DIR}/visor-hc.html.sha256"
 
 echo ""
 echo "=============================================="
 echo "Listo:"
 echo "  $ZIP_PATH"
 echo "  $ZIP_PATH.sha256"
+echo "  ${RELEASE_DIR}/visor-hc.html"
 echo ""
 cat "${ZIP_PATH}.sha256"
 echo ""

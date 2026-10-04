@@ -7,7 +7,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { CapturedDocument } from '../messaging/types';
 import { buildMetadata, buildZip, type BuildZipArgs } from '../zip-builder';
-import { buildViewerData, buildViewerHtml, htmlToPlainText, MAX_TEXT_CHARS, VIEWER_FILE } from '.';
+import {
+  buildStandaloneViewerHtml,
+  buildViewerData,
+  buildViewerHtml,
+  htmlToPlainText,
+  MAX_TEXT_CHARS,
+  VIEWER_FILE,
+} from '.';
 
 function makeDoc(overrides: Partial<CapturedDocument> = {}): CapturedDocument {
   return {
@@ -118,5 +125,25 @@ describe('buildZip + visor', () => {
     const data = embeddedData(visor) as { documents: Array<{ file: string }> };
     expect(data.documents[0]!.file).toBe('docs/2026-04-15_policlinica_consulta.html');
     expect(zip.file(data.documents[0]!.file)).not.toBeNull();
+  });
+});
+
+describe('buildStandaloneViewerHtml', () => {
+  const html = buildStandaloneViewerHtml('/* jszip */ window.JSZip = {}; // "</script>" en un string');
+
+  it('lleva JSZip inline sin que pueda cerrar su <script>', () => {
+    expect(html).toContain('/* jszip */ window.JSZip = {};');
+    expect(html).not.toContain('"</script>" en un string');
+  });
+
+  it('no trae índice embebido: lo arma el cargador a partir del ZIP', () => {
+    expect(html).not.toContain('id="hcd-data"');
+    expect(html).toContain('zip-input');
+  });
+
+  it('declara una CSP sin red que solo admite frames blob:', () => {
+    expect(html).toContain("connect-src 'none'");
+    expect(html).toContain('frame-src blob:');
+    expect(html).not.toMatch(/<(script|link)[^>]+(src|href)=["']https?:/);
   });
 });
